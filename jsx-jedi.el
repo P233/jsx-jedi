@@ -39,130 +39,116 @@
 
 (require 'avy)
 
-
-(defvar jsx-jedi-kill-node-types      '("comment"
-                                        "expression_statement"
-                                        "function_declaration"
-                                        "import_statement"
-                                        "interface_declaration"
-                                        "jsx_attribute"
-                                        "jsx_element"
-                                        "jsx_expression"
-                                        "jsx_self_closing_element"
-                                        "lexical_declaration"
-                                        "object"
-                                        "pair"
-                                        "return_statement"
-                                        "type_alias_declaration"))
-
-(defvar jsx-jedi-empty-node-types     '("arguments"
-                                        "array"
-                                        "array_pattern"
-                                        "formal_parameters"
-                                        "jsx_attribute"
-                                        "jsx_element"
-                                        "jsx_expression"
-                                        "named_imports"
-                                        "object"
-                                        "object_pattern"
-                                        "pair"
-                                        "statement_block"
-                                        "string"
-                                        "template_string"))
-
-(defvar jsx-jedi-zap-node-types       '("arguments"
-                                        "array"
-                                        "array_pattern"
-                                        "formal_parameters"
-                                        "jsx_expression"
-                                        "jsx_opening_element"
-                                        "jsx_self_closing_element"
-                                        "named_imports"
-                                        "object_pattern"
-                                        "string"
-                                        "template_string"))
-
-(defvar jsx-jedi-copy-node-types      '("expression_statement"
-                                        "function_declaration"
-                                        "interface_declaration"
-                                        "jsx_attribute"
-                                        "jsx_element"
-                                        "jsx_self_closing_element"
-                                        "lexical_declaration"
-                                        "pair"
-                                        "string"
-                                        "template_string"
-                                        "type_alias_declaration"))
-
-(defvar jsx-jedi-duplicate-node-types '("function_declaration"
-                                        "jsx_element"
-                                        "jsx_self_closing_element"
-                                        "lexical_declaration"
-                                        "pair"))
-
-(defvar jsx-jedi-mark-node-types      '("comment"
-                                        "expression_statement"
-                                        "function_declaration"
-                                        "interface_declaration"
-                                        "jsx_element"
-                                        "jsx_self_closing_element"
-                                        "lexical_declaration"
-                                        "pair"
-                                        "return_statement"
-                                        "statement_block"
-                                        "type_alias_declaration"))
-
-(defvar jsx-jedi-comment-node-types   '("expression_statement"
-                                        "import_statement"
-                                        "interface_declaration"
-                                        "jsx_element"
-                                        "jsx_self_closing_element"
-                                        "lexical_declaration"
-                                        "pair"
-                                        "return_statement"
-                                        "function_declaration"
-                                        "type_alias_declaration")
-  "This list is used to find nodes that can be commented. No need to include `comment' here.")
-
-(defvar jsx-jedi-avy-node-types       '("expression_statement"
-                                        "function_declaration"
-                                        "import_statement"
-                                        "interface_declaration"
-                                        "jsx_element"
-                                        "jsx_self_closing_element"
-                                        "lexical_declaration"
-                                        "return_statement"
-                                        "statement_block"
-                                        "string"
-                                        "template_string"
-                                        "type_alias_declaration"))
-
-(defvar jsx-jedi-raise-node-types     '("jsx_element"
-                                        "jsx_expression"
-                                        "jsx_self_closing_element"))
+;;; Variables
 
 (defvar jsx-jedi-tag-node-types       '("jsx_element"
                                         "jsx_self_closing_element"))
 
+(defvar jsx-jedi-kill-node-types      (append jsx-jedi-tag-node-types
+                                              '("comment"
+                                                "expression_statement"
+                                                "function_declaration"
+                                                "import_statement"
+                                                "interface_declaration"
+                                                "jsx_attribute"
+                                                "jsx_expression"
+                                                "lexical_declaration"
+                                                "object"
+                                                "pair"
+                                                "return_statement"
+                                                "type_alias_declaration")))
+
+(defvar jsx-jedi-empty-node-types     (append jsx-jedi-tag-node-types
+                                              '("arguments"
+                                                "array"
+                                                "array_pattern"
+                                                "formal_parameters"
+                                                "jsx_attribute"
+                                                "jsx_expression"
+                                                "named_imports"
+                                                "object"
+                                                "object_pattern"
+                                                "pair"
+                                                "statement_block"
+                                                "string"
+                                                "template_string")))
+
+(defvar jsx-jedi-zap-node-types       (append jsx-jedi-tag-node-types
+                                              '("arguments"
+                                                "array"
+                                                "array_pattern"
+                                                "formal_parameters"
+                                                "jsx_expression"
+                                                "jsx_opening_element"
+                                                "named_imports"
+                                                "object_pattern"
+                                                "string"
+                                                "template_string")))
+
+(defvar jsx-jedi-copy-node-types      (append jsx-jedi-tag-node-types
+                                              '("expression_statement"
+                                                "function_declaration"
+                                                "interface_declaration"
+                                                "jsx_attribute"
+                                                "lexical_declaration"
+                                                "pair"
+                                                "string"
+                                                "template_string"
+                                                "type_alias_declaration")))
+
+(defvar jsx-jedi-duplicate-node-types (append jsx-jedi-tag-node-types
+                                              '("function_declaration"
+                                                "lexical_declaration"
+                                                "pair")))
+
+(defvar jsx-jedi-mark-node-types      (append jsx-jedi-tag-node-types
+                                              '("comment"
+                                                "expression_statement"
+                                                "function_declaration"
+                                                "interface_declaration"
+                                                "lexical_declaration"
+                                                "pair"
+                                                "return_statement"
+                                                "statement_block"
+                                                "type_alias_declaration")))
+
+(defvar jsx-jedi-comment-node-types   (append jsx-jedi-tag-node-types
+                                              '("expression_statement"
+                                                "import_statement"
+                                                "interface_declaration"
+                                                "lexical_declaration"
+                                                "pair"
+                                                "return_statement"
+                                                "function_declaration"
+                                                "type_alias_declaration"))
+  "This list is used to find nodes that can be commented. No need to include `comment' here.")
+
+(defvar jsx-jedi-avy-node-types       (append jsx-jedi-tag-node-types
+                                              '("expression_statement"
+                                                "function_declaration"
+                                                "import_statement"
+                                                "interface_declaration"
+                                                "lexical_declaration"
+                                                "return_statement"
+                                                "statement_block"
+                                                "string"
+                                                "template_string"
+                                                "type_alias_declaration")))
+
+(defvar jsx-jedi-hoist-node-types     (append jsx-jedi-tag-node-types
+                                              '("jsx_expression")))
+
+
+;;; Helpers
 
 (defun jsx-jedi--kill-region-and-goto-start (start end)
-  "Kill the region between START and END, and move point to START."
+  "Kill region from START to END and move point to START."
   (kill-region start end)
   (goto-char start))
 
 
-(defun jsx-jedi--delete-blank-line ()
-  "Delete the blank line at point if it exists, and indent the line."
-  (when (save-excursion
-          (beginning-of-line)
-          (looking-at-p "^[[:space:]]*$"))
-    (delete-blank-lines)
-    (indent-for-tab-command)))
-
-
 (defun jsx-jedi--find-comment-block-bounds (node)
-  "Get the bounds of the comment block containing NODE.
-Return a cons cell (START . END) representing the bounds."
+  "Return bounds (START . END) of the comment block containing NODE."
   (let ((start-node node)
         (end-node node))
     (while (string= (treesit-node-type (treesit-node-prev-sibling start-node)) "comment")
@@ -173,7 +159,7 @@ Return a cons cell (START . END) representing the bounds."
 
 
 (defun jsx-jedi--find-node-at-point (node position)
-  "Find the first ancestor node (including NODE itself) that contains POSITION."
+  "Find first ancestor of NODE (inclusive) containing POSITION."
   (when node
     (let ((start (treesit-node-start node))
           (end (treesit-node-end node)))
@@ -187,10 +173,8 @@ Return a cons cell (START . END) representing the bounds."
 
 
 (defun jsx-jedi--find-node-info (valid-types)
-  "Find node at point matching one of VALID-TYPES.
-VALID-TYPES is a list of node types to consider.
-Returns a list (TYPE START END NODE) with node type, bounds and the node itself,
-or nil if no matching node is found."
+  "Find node at point matching VALID-TYPES.
+Return list (TYPE START END NODE) or nil."
   (let ((node (treesit-node-at (point))))
     (if (and (string= (treesit-node-type node) "comment")
              (member "comment" valid-types))
@@ -205,8 +189,10 @@ or nil if no matching node is found."
               found-node)))))
 
 
+;;; Commands
+
 (defun jsx-jedi-kill ()
-  "Kill the suitable syntax node at point."
+  "Kill the syntax node at point."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-kill-node-types))
               (type (nth 0 node-info))
@@ -214,15 +200,20 @@ or nil if no matching node is found."
               (end (nth 2 node-info))
               (node (nth 3 node-info)))
     (let ((kill-end end))
+      ;; For object and pair nodes, include trailing comma if any
       (when (and (member type '("object" "pair"))
                  (string= (treesit-node-text (treesit-node-next-sibling node) t) ","))
         (setq kill-end (1+ end)))
       (kill-region start kill-end)
-      (jsx-jedi--delete-blank-line))))
+      (when (save-excursion
+              (beginning-of-line)
+              (looking-at-p "^[[:space:]]*$"))
+        (delete-blank-lines)
+        (indent-for-tab-command)))))
 
 
 (defun jsx-jedi-empty ()
-  "Empty the content of the JSX element or other suitable syntax node at point."
+  "Empty content of the syntax node at point."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-empty-node-types))
               (type (nth 0 node-info))
@@ -245,17 +236,42 @@ or nil if no matching node is found."
           (treesit-node-end opening-node)
           (treesit-node-start closing-node)))))))
 
+(defun jsx-jedi-substitute ()
+  "Substitute content of the syntax node at point with yanked text."
+  (interactive)
+  (let ((text (string-trim (current-kill 0))))
+    (when (jsx-jedi-empty)
+      (if (string-match-p "\n" text)
+          (progn
+            (newline)
+            (let ((start (point)))
+              (insert text)
+              (newline)
+              (indent-region start (point))
+              (indent-according-to-mode)))
+        (insert text)))))
+
 
 (defun jsx-jedi-zap ()
-  "Zap the suitable syntax node at point to the end."
+  "Delete from point to the end of the content of the syntax node."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-zap-node-types))
-              (end (1- (nth 2 node-info))))
-    (delete-region (point) end)))
+              (type (nth 0 node-info))
+              (node (nth 3 node-info))
+              (end (nth 2 node-info)))
+    (let ((zap-end (cond
+                    ((string= type "jsx_element")
+                     (treesit-node-start (treesit-node-child node -1)))
+                    ((string= type "jsx_self_closing_element")
+                     (- end 2))
+                    (t
+                     (1- end)))))
+      (delete-region (point) zap-end)
+      t)))
 
 
 (defun jsx-jedi-copy ()
-  "Copy the suitable syntax node at point to the kill ring."
+  "Copy syntax node at point to kill ring."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-copy-node-types))
               (start (nth 1 node-info))
@@ -265,7 +281,7 @@ or nil if no matching node is found."
 
 
 (defun jsx-jedi-duplicate ()
-  "Duplicate the suitable syntax node at point."
+  "Duplicate syntax node at point."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-duplicate-node-types))
               (end (nth 2 node-info))
@@ -283,7 +299,7 @@ or nil if no matching node is found."
 
 
 (defun jsx-jedi-mark ()
-  "Select the suitable syntax node at point."
+  "Mark syntax node at point."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-mark-node-types))
               (start (nth 1 node-info))
@@ -294,7 +310,7 @@ or nil if no matching node is found."
 
 
 (defun jsx-jedi-comment-uncomment ()
-  "Comment or uncomment the suitable syntax node at point."
+  "Comment or uncomment syntax node at point."
   (interactive)
   (let* ((node (treesit-node-at (point)))
          (comment-p (string= (treesit-node-type node) "comment"))
@@ -306,35 +322,40 @@ or nil if no matching node is found."
                                  (string= (treesit-node-type (treesit-node-prev-sibling node)) "comment")
                                  (string= (treesit-node-type (treesit-node-next-sibling node)) "comment")))))
     (cond
+     ;; Case 1: Current node is a standard JS comment -> Uncomment it
      (js-comment-p
       (let* ((bounds (jsx-jedi--find-comment-block-bounds node))
              (start (car bounds))
              (end (cdr bounds)))
         (uncomment-region start end)))
+
+     ;; Case 2: Current node is a JSX comment -> Uncomment it
      (jsx-comment-p
-      (let* ((comment (treesit-node-parent node))
-             (comment-text (treesit-node-text comment t))
-             (uncomment-text (replace-regexp-in-string "{/\\*[[:space:]]*" "" (replace-regexp-in-string "[[:space:]]*\\*/}" "" comment-text)))
-             (start (treesit-node-start comment))
-             (end (treesit-node-end comment)))
-        (delete-region start end)
-        (insert uncomment-text)))
+      (let* ((comment-node (treesit-node-parent node))
+             (beg (treesit-node-start comment-node))
+             (end (treesit-node-end comment-node))
+             (text (buffer-substring-no-properties beg end))
+             (new-text (replace-regexp-in-string "\\`[ \t\n]*{/\\*[ \t]*" ""
+                                                 (replace-regexp-in-string "[ \t]*\\*/}[ \t\n]*\\'" "" text))))
+        (delete-region beg end)
+        (insert new-text)))
+
+     ;; Case 3: Current node is code -> Comment it
      (t
       (when-let* ((element (treesit-parent-until node (lambda (n)
                                                         (member (treesit-node-type n) jsx-jedi-comment-node-types)) t))
                   (start (treesit-node-start element))
                   (end (treesit-node-end element)))
         (if (member (treesit-node-type element) jsx-jedi-tag-node-types)
-            (let ((comment-text (concat "{/* " (treesit-node-text element t) " */}")))
-              (kill-region start end)
-              (insert comment-text))
+            (let ((text (buffer-substring-no-properties start end)))
+              (delete-region start end)
+              (insert "{/* " text " */}"))
           (if (eq (char-after end) ?,)
               (comment-region start (1+ end))
             (comment-region start end))))))))
 
-
 (defun jsx-jedi-avy-word ()
-  "Jump to a word within the nearest suitable parent node at point using Avy."
+  "Jump to word in syntax node at point using Avy."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-avy-node-types))
               (start (nth 1 node-info))
@@ -342,14 +363,14 @@ or nil if no matching node is found."
     (avy-goto-word-0 t start end)))
 
 
-(defun jsx-jedi-raise ()
-  "Raise the JSX element at point."
+(defun jsx-jedi-hoist-tag ()
+  "Hoist JSX element at point, replacing parent."
   (interactive)
-  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-raise-node-types))
+  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-hoist-node-types))
               (node (nth 3 node-info))
               (text (treesit-node-text node t))
               (parent (treesit-parent-until node (lambda (n)
-                                                   (string= (treesit-node-type n) "jsx_element")) t))
+                                                   (string= (treesit-node-type n) "jsx_element"))))
               (start (treesit-node-start parent))
               (end (treesit-node-end parent)))
     (delete-region start end)
@@ -357,23 +378,82 @@ or nil if no matching node is found."
     (indent-region start (point))))
 
 
-(defun jsx-jedi-wrap-tap ()
-  "Wrap the JSX element at point with user inputted tag name."
+(defun jsx-jedi-rename-tag ()
+  "Rename JSX element at point."
+  (interactive)
+  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
+              (type (nth 0 node-info))
+              (node (nth 3 node-info)))
+    (let* ((current-tag-name (if (string= type "jsx_self_closing_element")
+                                 (treesit-node-text (treesit-node-child node 1) t)
+                               (treesit-node-text (treesit-node-child (treesit-node-child node 0) 1) t)))
+           (new-tag (read-string (format "Rename %s to: " current-tag-name) current-tag-name)))
+      (if (string= type "jsx_self_closing_element")
+          (let* ((name-node (treesit-node-child node 1))
+                 (start (treesit-node-start name-node))
+                 (end (treesit-node-end name-node)))
+            (delete-region start end)
+            (goto-char start)
+            (insert new-tag))
+        (let* ((opening-node (treesit-node-child node 0))
+               (closing-node (treesit-node-child node -1))
+               (opening-name-node (treesit-node-child opening-node 1))
+               (closing-name-node (treesit-node-child closing-node 1))
+               (closing-start (treesit-node-start closing-name-node))
+               (closing-end (treesit-node-end closing-name-node))
+               (opening-start (treesit-node-start opening-name-node))
+               (opening-end (treesit-node-end opening-name-node)))
+          (save-excursion
+            (delete-region closing-start closing-end)
+            (goto-char closing-start)
+            (insert new-tag))
+          (delete-region opening-start opening-end)
+          (goto-char opening-start)
+          (insert new-tag))))))
+
+
+(defun jsx-jedi-wrap-tag ()
+  "Wrap JSX element at point with new tag."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
               (start (nth 1 node-info))
               (end (nth 2 node-info))
               (node (nth 3 node-info))
               (text (treesit-node-text node t))
-              (tag-name (read-string "Enter wrapping tag name: "))
-              (wrapped-text (concat "<" tag-name ">\n" text "\n</" tag-name ">")))
-    (delete-region start end)
-    (insert wrapped-text)
-    (indent-region start (point))))
+              (tag-input (read-string "Enter wrapping tag name: "))
+              (tag-name (car (split-string tag-input))))
+    (let ((wrapped-text (if (string-match-p "\n" text)
+                            (concat "<" tag-input ">\n" text "\n</" tag-name ">")
+                          (concat "<" tag-input ">" text "</" tag-name ">"))))
+      (delete-region start end)
+      (insert wrapped-text)
+      (indent-region start (point)))))
+
+
+(defun jsx-jedi-unwrap-tag ()
+  "Unwrap content of JSX element at point."
+  (interactive)
+  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
+              (type (nth 0 node-info))
+              (node (nth 3 node-info)))
+    (if (string= type "jsx_self_closing_element")
+        (delete-region (treesit-node-start node) (treesit-node-end node))
+      (let* ((opening-node (treesit-node-child node 0))
+             (closing-node (treesit-node-child node -1))
+             (start (treesit-node-start node))
+             (end (treesit-node-end node))
+             (inner-start (treesit-node-end opening-node))
+             (inner-end (treesit-node-start closing-node))
+             (content (buffer-substring inner-start inner-end)))
+        (setq content (replace-regexp-in-string "\\`[ \t]*\n" "" content))
+        (setq content (replace-regexp-in-string "\n[ \t]*\\'" "" content))
+        (delete-region start end)
+        (insert content)
+        (indent-region start (point))))))
 
 
 (defun jsx-jedi-move-to-opening-tag ()
-  "Move point to the opening tag of the JSX element at point."
+  "Move point to opening tag of JSX element."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
               (node (nth 3 node-info))
@@ -383,7 +463,7 @@ or nil if no matching node is found."
 
 
 (defun jsx-jedi-move-to-closing-tag ()
-  "Move point to the closing tag of the JSX element at point."
+  "Move point to closing tag of JSX element."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
               (type (nth 0 node-info))
@@ -393,6 +473,58 @@ or nil if no matching node is found."
         (goto-char (1+ (treesit-node-start closing-node)))
       (goto-char (1- (treesit-node-end closing-node))))))
 
+
+(defun jsx-jedi-toggle-self-closing-tag ()
+  "Toggle JSX element between self-closing and normal."
+  (interactive)
+  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
+              (type (nth 0 node-info))
+              (node (nth 3 node-info)))
+    (if (string= type "jsx_self_closing_element")
+        (let* ((name-node (treesit-node-child node 1))
+               (tag-name (treesit-node-text name-node t))
+               (end (treesit-node-end node))
+               (start (treesit-node-start node)))
+          (goto-char end)
+          (delete-char -2)
+          (when (eq (char-before) ?\s)
+            (delete-char -1))
+          (insert ">")
+          (let ((pos (point)))
+            (insert "</" tag-name ">")
+            (indent-region start (point))
+            (goto-char pos)))
+      (let* ((opening-node (treesit-node-child node 0))
+             (closing-node (treesit-node-child node -1))
+             (opening-text (treesit-node-text opening-node t))
+             (new-text (concat (substring opening-text 0 -1) " />"))
+             (closing-len (- (treesit-node-end closing-node) (treesit-node-start closing-node))))
+        (jsx-jedi--kill-region-and-goto-start
+         (treesit-node-end opening-node)
+         (treesit-node-start closing-node))
+        (delete-char closing-len)
+        (delete-region (treesit-node-start opening-node) (point))
+        (insert new-text)))))
+
+
+(defun jsx-jedi-add-attribute ()
+  "Add attribute to JSX element at point."
+  (interactive)
+  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
+              (type (nth 0 node-info))
+              (node (nth 3 node-info)))
+    (let ((attr-name (read-string "Attribute name: ")))
+      (unless (string-empty-p attr-name)
+        (if (string= type "jsx_self_closing_element")
+            (goto-char (- (treesit-node-end node) 2))
+          (goto-char (- (treesit-node-end (treesit-node-child node 0)) 1)))
+        (insert " " attr-name "={}")
+        (backward-char 1)
+        t))))
+
+
+
+;;; Mode
 
 ;;;###autoload
 (define-minor-mode jsx-jedi-mode
