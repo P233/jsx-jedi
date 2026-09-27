@@ -1,0 +1,40 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        emacs: ['29.1', '30.2', '31.1']
+    env:
+      JSX_JEDI_AVY_DIR: ${{ github.workspace }}/.test-deps/avy
+      JSX_JEDI_GRAMMAR_DIR: ${{ github.workspace }}/.test-deps/grammars
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: purcell/setup-emacs@34c6ded44899fd1bf74d2889558befd1750e61a7
+        with:
+          version: ${{ matrix.emacs }}
+      - name: Build pinned dependencies
+        run: bash scripts/setup-test-deps.sh
+      - name: Test source
+        run: emacs -Q --batch -l scripts/test.el
+      - name: Compile without warnings
+        run: emacs -Q --batch -l scripts/compile.el
+      - name: Test bytecode in a fresh process
+        env:
+          JSX_JEDI_TEST_MODE: compiled
+        run: emacs -Q --batch -l scripts/test.el

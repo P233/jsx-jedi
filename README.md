@@ -20,7 +20,9 @@ JSX Jedi streamlines editing by providing context-aware operations for JavaScrip
 
 Install the grammars for the modes you use and ensure Emacs can load them. For grammars installed outside Emacs's standard search directories, add their directory to `treesit-extra-load-path`.
 
-Emacs 29.1 is the package's declared minimum; the regression suite has not yet been verified on that version.
+Emacs 31's `js-ts-mode` also uses the [JSDoc grammar](https://github.com/tree-sitter/tree-sitter-jsdoc) for fontification.
+
+Emacs 29.1 is the package's declared minimum. The CI matrix targets 29.1, 30.2 and 31.1; see the workflow results for versions actually verified. Local validation of this change used Emacs 31.1 on macOS.
 
 ## Installation
 
@@ -114,18 +116,58 @@ The lists are initialized independently when the package loads. Changing the tag
 
 ## Running tests
 
-The ERT regression suite uses a real TSX parser. Install `avy` and the `tsx` grammar before running it; the test runner does not download dependencies.
+The ERT suite uses real JavaScript, TypeScript and TSX modes and parsers. It also checks configuration loading/saving in fresh Emacs processes, command-loop undo/redo, cancellation, Avy selection and highlight cleanup. No parser mocks or missing-dependency skips are used.
 
-From the repository root:
+To obtain the same dependency revisions as CI, run this once from the repository root with Git and a C compiler installed:
 
 ```sh
-JSX_JEDI_GRAMMAR_DIR=/path/to/grammars \
-  emacs -Q --batch -L /path/to/avy -l scripts/test.el
+bash scripts/setup-test-deps.sh
+export JSX_JEDI_AVY_DIR="$PWD/.test-deps/avy"
+export JSX_JEDI_GRAMMAR_DIR="$PWD/.test-deps/grammars"
 ```
 
-Pass the directory containing `avy.el` with `-L`. Set `JSX_JEDI_GRAMMAR_DIR` to the directory containing the compiled TSX grammar, or omit it if Emacs already finds that grammar in its standard search directories. Missing dependencies and grammar load failures stop the run with an error; tests are not silently skipped.
+The helper downloads pinned Avy 0.5.0 and grammar source commits, builds their checked-in C sources, and records the revisions in `.test-deps/versions.txt`. It supports macOS and Linux, requires an empty destination, and accepts an alternative destination as its first argument. It does not install anything into your Emacs configuration.
 
-`test-jedi.tsx` remains a sample file for manual editing checks.
+Run source and bytecode checks in separate processes:
+
+```sh
+emacs -Q --batch -l scripts/test.el
+emacs -Q --batch -l scripts/compile.el
+JSX_JEDI_TEST_MODE=compiled emacs -Q --batch -l scripts/test.el
+```
+
+Compilation treats warnings as errors and writes to `.build/`, leaving the source tree free of bytecode. Override the output directory with `JSX_JEDI_BUILD_DIR`. Compiled-mode tests load that exact `.elc` file and fail if it is absent.
+
+Existing dependencies also work: pass the directory containing `avy.el` with `-L` or `JSX_JEDI_AVY_DIR`, and set `JSX_JEDI_GRAMMAR_DIR` to your grammar directory. The full suite requires `javascript`, `typescript`, `tsx` and `jsdoc`; omit the environment variable if Emacs finds them in its standard search paths. Validation never downloads missing grammars implicitly.
+
+The GitHub Actions workflow repeats these checks on Ubuntu for each matrix version. Actions and dependency sources are pinned to commits; the setup action still relies on its upstream Emacs build service, so the entire toolchain is not bit-for-bit pinned.
+
+### Interactive checks
+
+Batch tests do not prove visual behavior. In a graphical Emacs session, load the package and use `test-jedi.tsx` or a disposable buffer to check:
+
+- Rename a paired tag through the real minibuffer, then undo and redo; both names should change together.
+- Cancel rename, wrap and add-attribute with `C-g`; text and the current selection should remain unchanged.
+- Use `jsx-jedi-avy-word`; verify labels, destination, focus and label removal.
+- Copy and duplicate a JSX child; verify the momentary highlight and its removal on the next command.
+- Open the Customize group, save an option to a disposable custom file, restart, and reset it to its standard value.
+
+Repeat with your normal configuration when checking integration with completion, keybindings, themes or other editing packages.
+
+### Performance samples
+
+With the dependency environment above set, run:
+
+```sh
+mkdir -p .build
+emacs -Q --batch -l scripts/benchmark.el > .build/benchmark-source.jsonl
+JSX_JEDI_TEST_MODE=compiled emacs -Q --batch -l scripts/benchmark.el \
+  > .build/benchmark-compiled.jsonl
+```
+
+The benchmark varies file size and selected-subtree size independently and measures mark, copy and duplicate. Each case has one warm-up and seven recorded samples; set `JSX_JEDI_BENCH_SAMPLES` to an integer from 1 to 100 to change that count. JSON lines contain environment details, source/loaded-file hashes, dependency revisions, raw timings, GC counts/time and medians. Setup diagnostics go to stderr.
+
+Fixture setup, initial parsing and syntax preparation are outside the timed command. The parser is warm before each sample; pulse, font-lock and undo recording are disabled. A separate timing forces parsing after each command to expose deferred work. Results are checked for syntax errors and expected duplication. Compare runs on the same machine with matching dependencies and settings. These are batch timings, not GUI latency or proof of a speedup; CI does not impose absolute timing thresholds.
 
 ## License
 
