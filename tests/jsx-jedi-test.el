@@ -558,5 +558,105 @@
     (should (equal (jsx-jedi-test--text) "function f() { return <A />; }"))
     (jsx-jedi-test--assert-valid)))
 
+(ert-deftest jsx-jedi-test-copy-and-mark-optional-declaration-ranges ()
+  (let ((jsx-jedi-copy-node-types
+         (append jsx-jedi-copy-node-types '("variable_declaration" "enum_declaration")))
+        (jsx-jedi-mark-node-types
+         (append jsx-jedi-mark-node-types '("variable_declaration" "enum_declaration"))))
+    (dolist (case '(("va|r count = 1;" "var count = 1;")
+                    ("function f() { va|r count = 1; return count; }" "var count = 1;")
+                    ("for (va|r i = 0; i < 3; i++) work();" "var i = 0;")
+                    ("export en|um Status { Ready, Done }" "enum Status { Ready, Done }")))
+      (jsx-jedi-test--with-buffer (car case)
+        (let ((before (jsx-jedi-test--text)) (position (point)))
+          (jsx-jedi-copy)
+          (should (= (point) position))
+          (should (equal (car kill-ring) (cadr case)))
+          (dotimes (_ 2)
+            (jsx-jedi-mark)
+            (should mark-active)
+            (should (equal (buffer-substring-no-properties (point) (mark))
+                           (cadr case))))
+          (should (equal (jsx-jedi-test--text) before))
+          (should-not (buffer-modified-p)))))))
+
+(ert-deftest jsx-jedi-test-empty-optional-object-type-range ()
+  (let ((jsx-jedi-empty-node-types (cons "object_type" jsx-jedi-empty-node-types)))
+    (dolist (case '(("type T = {| a: number; b: boolean };" "type T = {};"
+                     " a: number; b: boolean ")
+                    ("type T = { nested: |{a: number}; keep: boolean };"
+                     "type T = { nested: {}; keep: boolean };" "a: number")
+                    ("type T = { keep: boolean } & {| a: number };"
+                     "type T = { keep: boolean } & {};" " a: number ")))
+      (jsx-jedi-test--with-buffer (car case)
+        (jsx-jedi-empty)
+        (should (equal (jsx-jedi-test--text) (nth 1 case)))
+        (should (equal (car kill-ring) (nth 2 case)))
+        (should (eq (char-before) ?{))
+        (should (eq (char-after) ?}))
+        (jsx-jedi-test--assert-valid)))))
+
+(ert-deftest jsx-jedi-test-substitute-optional-object-type-range ()
+  (let ((jsx-jedi-empty-node-types (cons "object_type" jsx-jedi-empty-node-types)))
+    (jsx-jedi-test--with-buffer "type T = |{a: number};\nconst keep = 1;"
+      (setq kill-ring '("b: boolean"))
+      (jsx-jedi-substitute)
+      (should (equal (jsx-jedi-test--text) "type T = {b: boolean};\nconst keep = 1;"))
+      (should (equal (car kill-ring) "a: number"))
+      (should (eq (char-after) ?}))
+      (jsx-jedi-test--assert-valid))))
+
+(ert-deftest jsx-jedi-test-optional-object-type-keeps-inner-property-selection ()
+  (let ((jsx-jedi-empty-node-types (cons "object_type" jsx-jedi-empty-node-types)))
+    (jsx-jedi-test--with-buffer "type T = { va|lue: number; keep: boolean };"
+      (setq kill-ring '("boolean"))
+      (jsx-jedi-substitute)
+      (should (equal (jsx-jedi-test--text)
+                     "type T = { value: boolean; keep: boolean };"))
+      (should (equal (car kill-ring) "number"))
+      (jsx-jedi-test--assert-valid))))
+
+(ert-deftest jsx-jedi-test-empty-optional-throw-value ()
+  (let ((jsx-jedi-empty-node-types (cons "throw_statement" jsx-jedi-empty-node-types)))
+    (dolist (case '(("function f() { thr|ow original; after(); }"
+                     "function f() { throw ; after(); }" "original" "; after(); }")
+                    ("function f() { thr|ow /* why */ /* detail */ error(code) /* keep */; after(); }"
+                     "function f() { throw /* why */ /* detail */  /* keep */; after(); }"
+                     "error(code)" " /* keep */; after(); }")))
+      (jsx-jedi-test--with-buffer (car case)
+        (jsx-jedi-empty)
+        ;; Emptying an operand intentionally leaves an incomplete throw to edit.
+        (should (equal (jsx-jedi-test--text) (nth 1 case)))
+        (should (equal (car kill-ring) (nth 2 case)))
+        (should (looking-at-p (regexp-quote (nth 3 case))))))))
+
+(ert-deftest jsx-jedi-test-substitute-optional-throw-value ()
+  (let ((jsx-jedi-empty-node-types (cons "throw_statement" jsx-jedi-empty-node-types)))
+    (jsx-jedi-test--with-buffer "function f() { thr|ow /* why */ original /* keep */; after(); }"
+      (setq kill-ring '("replacement"))
+      (jsx-jedi-substitute)
+      (should (equal (jsx-jedi-test--text)
+                     "function f() { throw /* why */ replacement /* keep */; after(); }"))
+      (should (equal (car kill-ring) "original"))
+      (should (looking-at-p " /\\* keep \\*/; after(); }"))
+      (jsx-jedi-test--assert-valid))))
+
+(ert-deftest jsx-jedi-test-return-value-preserves-leading-comments ()
+  (dolist (command '(jsx-jedi-empty jsx-jedi-substitute))
+    (jsx-jedi-test--with-buffer "function f() { ret|urn /* why */ /* detail */ original; }"
+      (setq kill-ring '("replacement"))
+      (funcall command)
+      (should (equal (jsx-jedi-test--text)
+                     (format "function f() { return /* why */ /* detail */ %s; }"
+                             (if (eq command 'jsx-jedi-empty) "" "replacement"))))
+      (should (equal (car kill-ring) "original"))
+      (should (eq (char-after) ?\;))
+      (jsx-jedi-test--assert-valid))))
+
+(ert-deftest jsx-jedi-test-bare-return-comment-has-no-value ()
+  (dolist (command '(jsx-jedi-empty jsx-jedi-substitute))
+    (jsx-jedi-test--with-buffer "function f() { ret|urn /* explanation */; }"
+      (jsx-jedi-test--unchanged command))))
+
 (provide 'jsx-jedi-test)
 ;;; jsx-jedi-test.el ends here

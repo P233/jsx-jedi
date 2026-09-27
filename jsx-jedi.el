@@ -110,7 +110,9 @@ This controls selection, not syntax support or separator handling."
                                                 "variable_declaration"
                                                 "template_string"))
   "Node types selected by empty and substitute.
-Only nodes with supported content bounds can be changed."
+Only nodes with supported content bounds can be changed.  The optional
+object_type and throw_statement ranges are supported but not enabled
+by default."
   :type '(repeat string)
   :group 'jsx-jedi)
 
@@ -362,12 +364,16 @@ Boolean attributes and self-closing elements have no editable content."
             (when-let* ((declarator (treesit-node-child node 0 t))
                         (value (treesit-node-child-by-field-name declarator "value")))
               (cons (treesit-node-start value) (treesit-node-end value))))
-           ("return_statement"
-            (when-let* ((value (treesit-node-child node 0 t)))
-              (cons (treesit-node-start value) (treesit-node-end value))))
+           ((or "return_statement" "throw_statement")
+            (let ((value (treesit-node-child node 0 t)))
+              ;; Comments are named children too, but are not the operand.
+              (while (equal (treesit-node-type value) "comment")
+                (setq value (treesit-node-next-sibling value t)))
+              (when value
+                (cons (treesit-node-start value) (treesit-node-end value)))))
            ((or "arguments" "array" "array_pattern" "export_clause"
                 "formal_parameters" "jsx_expression" "named_imports"
-                "object" "object_pattern" "parenthesized_expression"
+                "object" "object_pattern" "object_type" "parenthesized_expression"
                 "statement_block" "string" "tuple_type" "type_parameters"
                 "template_string")
             (when-let* ((opening (treesit-node-child node 0))

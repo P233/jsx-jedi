@@ -96,4 +96,30 @@
       (should (equal (jsx-jedi-test--text) "const x = <A />;"))
       (jsx-jedi-test--assert-valid))))
 
+(ert-deftest jsx-jedi-test-optional-content-command-loop-undo-redo ()
+  (dolist (case '((jsx-jedi-empty "type T = |{a: number};" "type T = {};")
+                  (jsx-jedi-substitute "type T = |{a: number};" "type T = {b: boolean};")
+                  (jsx-jedi-empty "function f() { thr|ow error; after(); }"
+                   "function f() { throw ; after(); }")
+                  (jsx-jedi-substitute "function f() { thr|ow error; after(); }"
+                   "function f() { throw replacement; after(); }")))
+    (save-window-excursion
+      (jsx-jedi-test--with-buffer (nth 1 case)
+        (switch-to-buffer (current-buffer))
+        (let ((before (jsx-jedi-test--text))
+              (jsx-jedi-empty-node-types
+               (append jsx-jedi-empty-node-types '("object_type" "throw_statement"))))
+          (setq kill-ring (list (if (string-prefix-p "type" before)
+                                   "b: boolean" "replacement")))
+          (use-local-map (make-sparse-keymap))
+          (local-set-key (kbd "<f5>") (car case))
+          (local-set-key (kbd "<f6>") #'undo-only)
+          (local-set-key (kbd "<f7>") #'undo-redo)
+          (execute-kbd-macro (kbd "<f5>"))
+          (should (equal (jsx-jedi-test--text) (nth 2 case)))
+          (execute-kbd-macro (kbd "<f6>"))
+          (should (equal (jsx-jedi-test--text) before))
+          (execute-kbd-macro (kbd "<f7>"))
+          (should (equal (jsx-jedi-test--text) (nth 2 case))))))))
+
 ;;; interaction-test.el ends here

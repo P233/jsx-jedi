@@ -114,6 +114,27 @@ Each operation has its own target list (for example, `jsx-jedi-kill-node-types`)
 
 The lists are initialized independently when the package loads. Changing the tag list afterward does not update other lists. An explicit Customize reset to a standard value evaluates its default expression again, using the current tag list. Saved values and values set before loading are preserved.
 
+### Optional Node Ranges
+
+The default lists keep their existing selection scopes. Selection uses the closest matching node; list order does not give a node higher priority. Adding a type can therefore select a smaller part of the code. Repeating `jsx-jedi-mark` keeps that range rather than expanding to its parent.
+
+For declaration-level copy/mark and additional empty/substitute ranges, enable the options you want after loading the package:
+
+```elisp
+(with-eval-after-load 'jsx-jedi
+  ;; Select a var or enum declaration without selecting its enclosing function.
+  (dolist (node-type '("variable_declaration" "enum_declaration"))
+    (add-to-list 'jsx-jedi-copy-node-types node-type t)
+    (add-to-list 'jsx-jedi-mark-node-types node-type t))
+  ;; Edit object-type members or the expression following throw.
+  (dolist (node-type '("object_type" "throw_statement"))
+    (add-to-list 'jsx-jedi-empty-node-types node-type t)))
+```
+
+With `object_type` enabled, emptying at the opening `{` in `type T = { a: number };` leaves `type T = {};`. From a property name, the closer `property_signature` still selects only that property's type. With `throw_statement` enabled, emptying from the `throw` keyword leaves `throw ;` for further editing; substitute replaces its expression directly. Adjacent comments and following statements are preserved.
+
+These examples do not change kill, duplicate, comment, Avy or zap scopes. Extending the first three also requires support for each parent context and its separators. Adding smaller Avy scopes reduces the available destinations; adding zap containers can delete following members in that container. Keep those ranges unchanged unless that behavior is wanted.
+
 ## Running tests
 
 The ERT suite uses real JavaScript, TypeScript and TSX modes and parsers. It also checks configuration loading/saving in fresh Emacs processes, command-loop undo/redo, cancellation, Avy selection and highlight cleanup. No parser mocks or missing-dependency skips are used.
