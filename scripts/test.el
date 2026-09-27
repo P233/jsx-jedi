@@ -7,6 +7,8 @@
 (require 'ert)
 (require 'treesit)
 
+(defvar jsx-jedi-test-package-file)
+
 (let* ((root (file-name-directory
               (directory-file-name
                (file-name-directory load-file-name))))
@@ -27,8 +29,10 @@
       (error "Cannot load the TSX grammar; set JSX_JEDI_GRAMMAR_DIR: %S"
              (cdr availability))))
   ;; Always exercise the working source, even when an older .elc exists.
-  (load (expand-file-name "jsx-jedi.el" root) nil t)
-  (load (expand-file-name "tests/jsx-jedi-test.el" root) nil t))
+  (setq jsx-jedi-test-package-file (expand-file-name "jsx-jedi.el" root))
+  (load jsx-jedi-test-package-file nil t t)
+  (load (expand-file-name "tests/jsx-jedi-test.el" root) nil t)
+  (load (expand-file-name "tests/configuration-test.el" root) nil t))
 
 (ert-run-tests-batch-and-exit)
 

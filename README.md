@@ -104,9 +104,13 @@ This intelligent selection means you can place your cursor _anywhere_ within a s
 
 ### Customizable Node Types
 
-Each operation has a customizable variable defining valid target nodes (e.g., `jsx-jedi-kill-node-types`, `jsx-jedi-tag-node-types`). You can modify these lists to tune the behavior to your liking.
+Use `M-x customize-group RET jsx-jedi RET` to edit and save the ten node-selection options. Existing `setq` configuration and temporary `let` bindings continue to work.
 
-The lists are initialized independently when the package loads. Changing `jsx-jedi-tag-node-types` afterward does not update the other lists. Adding a node type changes target selection; the command must also support that node's syntax.
+Each operation has its own target list (for example, `jsx-jedi-kill-node-types`). Adding a type changes selection; it does not add support for editing that syntax. The option descriptions state the limits of each operation.
+
+`jsx-jedi-tag-node-types` supports paired elements/fragments and self-closing elements. Tag commands reject other node types even when assigned through Lisp. Grammar safety checks remain independent of this preference: changing the list cannot make a JSX expression safe to promote into JavaScript.
+
+The lists are initialized independently when the package loads. Changing the tag list afterward does not update other lists. An explicit Customize reset to a standard value evaluates its default expression again, using the current tag list. Saved values and values set before loading are preserved.
 
 ## Running tests
 

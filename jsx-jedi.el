@@ -44,10 +44,23 @@
 
 ;;; Variables
 
-(defvar jsx-jedi-tag-node-types       '("jsx_element"
-                                        "jsx_self_closing_element"))
+(defgroup jsx-jedi nil
+  "Structural JavaScript, TypeScript and JSX editing."
+  :group 'languages
+  :prefix "jsx-jedi-")
 
-(defvar jsx-jedi-kill-node-types      (append jsx-jedi-tag-node-types
+(defcustom jsx-jedi-tag-node-types       '("jsx_element"
+                                        "jsx_self_closing_element")
+  "JSX node types selected by tag commands.
+Only the two built-in element shapes are supported.  Fragments share
+jsx_element with named tags; this option cannot distinguish them.
+Other command defaults read this list at initialization or explicit
+Customize reset.  Changing this option does not synchronize them."
+  :type '(set (const :tag "Paired elements and fragments" "jsx_element")
+              (const :tag "Self-closing elements" "jsx_self_closing_element"))
+  :group 'jsx-jedi)
+
+(defcustom jsx-jedi-kill-node-types      (append jsx-jedi-tag-node-types
                                               '("comment"
                                                 "class_declaration"
                                                 "export_statement"
@@ -64,9 +77,13 @@
                                                 "required_parameter"
                                                 "return_statement"
                                                 "throw_statement"
-                                                "type_alias_declaration")))
+                                                "type_alias_declaration"))
+  "Node types selected for killing.
+This controls selection, not syntax support or separator handling."
+  :type '(repeat string)
+  :group 'jsx-jedi)
 
-(defvar jsx-jedi-empty-node-types     (append jsx-jedi-tag-node-types
+(defcustom jsx-jedi-empty-node-types     (append jsx-jedi-tag-node-types
                                               '("arguments"
                                                 "array"
                                                 "array_pattern"
@@ -91,9 +108,13 @@
                                                 "type_alias_declaration"
                                                 "type_parameters"
                                                 "variable_declaration"
-                                                "template_string")))
+                                                "template_string"))
+  "Node types selected by empty and substitute.
+Only nodes with supported content bounds can be changed."
+  :type '(repeat string)
+  :group 'jsx-jedi)
 
-(defvar jsx-jedi-zap-node-types       (append jsx-jedi-tag-node-types
+(defcustom jsx-jedi-zap-node-types       (append jsx-jedi-tag-node-types
                                               '("arguments"
                                                 "array"
                                                 "array_pattern"
@@ -103,9 +124,13 @@
                                                 "named_imports"
                                                 "object_pattern"
                                                 "string"
-                                                "template_string")))
+                                                "template_string"))
+  "Node types selected for deleting to the end of content.
+Only supported content ranges can be changed."
+  :type '(repeat string)
+  :group 'jsx-jedi)
 
-(defvar jsx-jedi-copy-node-types      (append jsx-jedi-tag-node-types
+(defcustom jsx-jedi-copy-node-types      (append jsx-jedi-tag-node-types
                                               '("comment"
                                                 "class_declaration"
                                                 "export_statement"
@@ -124,9 +149,13 @@
                                                 "string"
                                                 "template_string"
                                                 "throw_statement"
-                                                "type_alias_declaration")))
+                                                "type_alias_declaration"))
+  "Node types selected for copying.
+Any grammar node may be selected; comments use the whole comment block."
+  :type '(repeat string)
+  :group 'jsx-jedi)
 
-(defvar jsx-jedi-duplicate-node-types (append jsx-jedi-tag-node-types
+(defcustom jsx-jedi-duplicate-node-types (append jsx-jedi-tag-node-types
                                               '("comment"
                                                 "class_declaration"
                                                 "export_statement"
@@ -142,9 +171,13 @@
                                                 "pair"
                                                 "return_statement"
                                                 "throw_statement"
-                                                "type_alias_declaration")))
+                                                "type_alias_declaration"))
+  "Node types selected for duplication.
+Selection does not add support for new syntax or insertion contexts."
+  :type '(repeat string)
+  :group 'jsx-jedi)
 
-(defvar jsx-jedi-mark-node-types      (append jsx-jedi-tag-node-types
+(defcustom jsx-jedi-mark-node-types      (append jsx-jedi-tag-node-types
                                               '("comment"
                                                 "class_declaration"
                                                 "export_statement"
@@ -162,9 +195,13 @@
                                                 "return_statement"
                                                 "statement_block"
                                                 "throw_statement"
-                                                "type_alias_declaration")))
+                                                "type_alias_declaration"))
+  "Node types selected for marking.
+Any grammar node may be selected; comments use the whole comment block."
+  :type '(repeat string)
+  :group 'jsx-jedi)
 
-(defvar jsx-jedi-comment-node-types   (append jsx-jedi-tag-node-types
+(defcustom jsx-jedi-comment-node-types   (append jsx-jedi-tag-node-types
                                               '("class_declaration"
                                                 "export_statement"
                                                 "expression_statement"
@@ -177,9 +214,13 @@
                                                 "return_statement"
                                                 "throw_statement"
                                                 "type_alias_declaration"))
-  "Node types that can be commented; do not include `comment'.")
+  "Node types selected when commenting code.
+Do not include comment.  This does not change uncomment detection or
+the syntax rules for JSX comments."
+  :type '(repeat string)
+  :group 'jsx-jedi)
 
-(defvar jsx-jedi-avy-node-types       (append jsx-jedi-tag-node-types
+(defcustom jsx-jedi-avy-node-types       (append jsx-jedi-tag-node-types
                                               '("class_declaration"
                                                 "export_statement"
                                                 "expression_statement"
@@ -197,10 +238,18 @@
                                                 "string"
                                                 "template_string"
                                                 "throw_statement"
-                                                "type_alias_declaration")))
+                                                "type_alias_declaration"))
+  "Node types defining the scope of Avy word navigation.
+Any grammar node may provide a navigation scope."
+  :type '(repeat string)
+  :group 'jsx-jedi)
 
-(defvar jsx-jedi-hoist-node-types     (append jsx-jedi-tag-node-types
-                                              '("jsx_expression")))
+(defcustom jsx-jedi-hoist-node-types     (append jsx-jedi-tag-node-types
+                                              '("jsx_expression"))
+  "Node types selected for hoisting.
+Selection does not redefine JSX element shapes or valid destination syntax."
+  :type '(repeat string)
+  :group 'jsx-jedi)
 
 
 ;;; Helpers
@@ -257,6 +306,18 @@ NODE is the syntax node at point, not necessarily the whole operation range."
 (defun jsx-jedi--jsx-child-p (node)
   "Return non-nil when NODE is in a JSX children position."
   (string= (treesit-node-type (treesit-node-parent node)) "jsx_element"))
+
+(defun jsx-jedi--jsx-element-p (node)
+  "Return non-nil for the supported JSX element shapes of NODE.
+Selection preferences must not redefine these grammar facts."
+  (member (treesit-node-type node) '("jsx_element" "jsx_self_closing_element")))
+
+(defun jsx-jedi--find-tag-info ()
+  "Select a JSX tag using preferences, rejecting unsupported node types."
+  (when-let* ((info (jsx-jedi--find-node-info jsx-jedi-tag-node-types)))
+    (unless (jsx-jedi--jsx-element-p (nth 3 info))
+      (user-error "This operation requires a JSX element"))
+    info))
 
 (defun jsx-jedi--tag-name-node (node)
   "Return the name node for JSX NODE, rejecting unnamed fragments."
@@ -493,7 +554,7 @@ Boolean attributes and self-closing elements have no editable content."
                                                         (member (treesit-node-type n) jsx-jedi-comment-node-types)) t))
                   (start (treesit-node-start element))
                   (end (treesit-node-end element)))
-        (if (member (treesit-node-type element) jsx-jedi-tag-node-types)
+        (if (jsx-jedi--jsx-element-p element)
             (let ((text (buffer-substring-no-properties start end)))
               (unless (jsx-jedi--jsx-child-p element)
                 (user-error "JSX comments require a JSX children position"))
@@ -527,7 +588,7 @@ Boolean attributes and self-closing elements have no editable content."
               (start (treesit-node-start parent))
               (end (treesit-node-end parent)))
     (unless (or (jsx-jedi--jsx-child-p parent)
-                (member (treesit-node-type node) jsx-jedi-tag-node-types))
+                (jsx-jedi--jsx-element-p node))
       (user-error "Hoisting here requires a JSX element"))
     (atomic-change-group
       (delete-region start end)
@@ -538,7 +599,7 @@ Boolean attributes and self-closing elements have no editable content."
 (defun jsx-jedi-rename-tag ()
   "Rename JSX element at point."
   (interactive)
-  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
+  (when-let* ((node-info (jsx-jedi--find-tag-info))
               (type (nth 0 node-info))
               (node (nth 3 node-info)))
     (let* ((name-node (jsx-jedi--tag-name-node node))
@@ -567,7 +628,7 @@ Boolean attributes and self-closing elements have no editable content."
 (defun jsx-jedi-wrap-tag ()
   "Wrap JSX element at point with new tag."
   (interactive)
-  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
+  (when-let* ((node-info (jsx-jedi--find-tag-info))
               (start (nth 1 node-info))
               (end (nth 2 node-info))
               (node (nth 3 node-info))
@@ -595,7 +656,7 @@ Boolean attributes and self-closing elements have no editable content."
 (defun jsx-jedi-unwrap-tag ()
   "Unwrap content of JSX element at point."
   (interactive)
-  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
+  (when-let* ((node-info (jsx-jedi--find-tag-info))
               (type (nth 0 node-info))
               (node (nth 3 node-info)))
     (let* ((start (treesit-node-start node))
@@ -611,13 +672,10 @@ Boolean attributes and self-closing elements have no editable content."
                   (dotimes (i (treesit-node-child-count node t))
                     (let ((child (treesit-node-child node i t)))
                       (when (and (>= (treesit-node-start child) (car bounds))
-                                 (<= (treesit-node-end child) (cdr bounds))
-                                 (not (and (string= (treesit-node-type child) "jsx_text")
-                                           (string-blank-p (treesit-node-text child t)))))
+                                 (<= (treesit-node-end child) (cdr bounds)))
                         (push child children)))))
                 (unless (and (= (length children) 1)
-                             (member (treesit-node-type (car children))
-                                     jsx-jedi-tag-node-types))
+                             (jsx-jedi--jsx-element-p (car children)))
                   (user-error "Unwrapping here requires a single JSX element"))
                 (treesit-node-text (car children) t)))))
       (atomic-change-group
@@ -629,7 +687,7 @@ Boolean attributes and self-closing elements have no editable content."
 (defun jsx-jedi-move-to-opening-tag ()
   "Move point to opening tag of JSX element."
   (interactive)
-  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
+  (when-let* ((node-info (jsx-jedi--find-tag-info))
               (node (nth 3 node-info))
               (opening-node (treesit-node-child node 0))
               (start (treesit-node-start opening-node)))
@@ -639,7 +697,7 @@ Boolean attributes and self-closing elements have no editable content."
 (defun jsx-jedi-move-to-closing-tag ()
   "Move point to closing tag of JSX element."
   (interactive)
-  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
+  (when-let* ((node-info (jsx-jedi--find-tag-info))
               (type (nth 0 node-info))
               (node (nth 3 node-info))
               (closing-node (treesit-node-child node -1)))
@@ -651,7 +709,7 @@ Boolean attributes and self-closing elements have no editable content."
 (defun jsx-jedi-toggle-self-closing-tag ()
   "Toggle JSX element between self-closing and normal."
   (interactive)
-  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
+  (when-let* ((node-info (jsx-jedi--find-tag-info))
               (type (nth 0 node-info))
               (node (nth 3 node-info))
               (name-node (jsx-jedi--tag-name-node node)))
@@ -682,7 +740,7 @@ Boolean attributes and self-closing elements have no editable content."
 (defun jsx-jedi-add-attribute ()
   "Add attribute to JSX element at point."
   (interactive)
-  (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-tag-node-types))
+  (when-let* ((node-info (jsx-jedi--find-tag-info))
               (type (nth 0 node-info))
               (node (nth 3 node-info)))
     (jsx-jedi--tag-name-node node)

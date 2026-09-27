@@ -518,5 +518,45 @@
     (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "Long")))
       (jsx-jedi-test--unchanged #'jsx-jedi-rename-tag 'text-read-only))))
 
+(ert-deftest jsx-jedi-test-tag-preference-cannot-enable-expression-promotion ()
+  (let ((jsx-jedi-tag-node-types
+         (append jsx-jedi-tag-node-types '("jsx_expression"))))
+    (jsx-jedi-test--with-buffer "const x = <div>{val|ue}</div>;"
+      (jsx-jedi-test--unchanged #'jsx-jedi-hoist-tag 'user-error))
+    (jsx-jedi-test--with-buffer "const x = <di|v>{value}</div>;"
+      (jsx-jedi-test--unchanged #'jsx-jedi-unwrap-tag 'user-error))))
+
+(ert-deftest jsx-jedi-test-tag-preference-does-not-change-jsx-shapes ()
+  (let ((jsx-jedi-tag-node-types '("jsx_element")))
+    (jsx-jedi-test--with-buffer "const x = <div><A| /></div>;"
+      (jsx-jedi-hoist-tag)
+      (should (equal (jsx-jedi-test--text) "const x = <A />;")))
+    (jsx-jedi-test--with-buffer "const x = <di|v><A /></div>;"
+      (jsx-jedi-unwrap-tag)
+      (should (equal (jsx-jedi-test--text) "const x = <A />;")))
+    (jsx-jedi-test--with-buffer "const x = <p><A| /></p>;"
+      (jsx-jedi-comment-uncomment)
+      (should (equal (jsx-jedi-test--text) "const x = <p>{/* <A /> */}</p>;")))))
+
+(ert-deftest jsx-jedi-test-tag-commands-reject-custom-non-tag-types ()
+  (let ((jsx-jedi-tag-node-types '("jsx_expression")))
+    (dolist (command '(jsx-jedi-rename-tag jsx-jedi-wrap-tag jsx-jedi-unwrap-tag
+                       jsx-jedi-move-to-opening-tag jsx-jedi-move-to-closing-tag
+                       jsx-jedi-toggle-self-closing-tag jsx-jedi-add-attribute))
+      (jsx-jedi-test--with-buffer "const x = <A>{val|ue}</A>;"
+        (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "New")))
+          (jsx-jedi-test--unchanged command 'user-error))))))
+
+(ert-deftest jsx-jedi-test-unwrap-rejects-whitespace-text-in-expression-slot ()
+  (dolist (content '(" <A /> " "\t<A />" " \n  <A /> \n "))
+    (jsx-jedi-test--with-buffer (concat "const x = <di|v>" content "</div>;")
+      (jsx-jedi-test--unchanged #'jsx-jedi-unwrap-tag 'user-error))))
+
+(ert-deftest jsx-jedi-test-unwrap-formatting-newlines-preserve-return-expression ()
+  (jsx-jedi-test--with-buffer "function f() { return <di|v>\n  <A />\n</div>; }"
+    (jsx-jedi-unwrap-tag)
+    (should (equal (jsx-jedi-test--text) "function f() { return <A />; }"))
+    (jsx-jedi-test--assert-valid)))
+
 (provide 'jsx-jedi-test)
 ;;; jsx-jedi-test.el ends here
