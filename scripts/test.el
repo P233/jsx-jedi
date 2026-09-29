@@ -1,8 +1,14 @@
 ;;; test.el --- Run JSX Jedi regression tests -*- lexical-binding: t; -*-
 
-;; Run from the repository root:
-;; JSX_JEDI_GRAMMAR_DIR=/path/to/grammars \
-;;   emacs -Q --batch -L /path/to/avy -l scripts/test.el
+;; From the repository root, after bash scripts/setup-test-deps.sh:
+;; JSX_JEDI_AVY_DIR=.test-deps/avy \
+;; JSX_JEDI_GRAMMAR_DIR=.test-deps/grammars \
+;;   emacs -Q --batch -l scripts/test.el
+;;
+;; The suite requires javascript, typescript, tsx and jsdoc grammars.
+;; It loads source by default.  For bytecode, run scripts/compile.el first,
+;; then set JSX_JEDI_TEST_MODE=compiled (and the same JSX_JEDI_BUILD_DIR
+;; if overridden).  Missing dependencies or bytecode fail the run.
 
 (require 'ert)
 (load (expand-file-name "support.el" (file-name-directory load-file-name)) nil t)

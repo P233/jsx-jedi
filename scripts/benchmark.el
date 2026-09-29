@@ -1,5 +1,20 @@
 ;;; benchmark.el --- Reproducible batch latency samples -*- lexical-binding: t; -*-
 
+;; From the repository root, set JSX_JEDI_AVY_DIR to Avy and
+;; JSX_JEDI_GRAMMAR_DIR to compiled grammars (tsx is required), then run:
+;;   emacs -Q --batch -l scripts/benchmark.el > benchmark.jsonl
+;; JSX_JEDI_TEST_MODE selects source (default) or compiled; compile with
+;; scripts/compile.el first for compiled mode.  JSX_JEDI_BUILD_DIR can
+;; override the .build directory used to find jsx-jedi.elc.
+;;
+;; JSX_JEDI_BENCH_SAMPLES accepts 1..100 recorded samples (default 7), after
+;; one warm-up per command and fixture.  JSONL with raw timings, GC counts
+;; and time, medians and environment metadata goes to stdout; setup
+;; diagnostics go to stderr.
+;; Timings use a warm parser, excluding setup, font-lock and undo recording.
+;; Pulse animation is off, but highlight overlays are still created.
+;; Deferred parsing is timed separately.  This does not measure GUI latency.
+
 (require 'json)
 (require 'cl-lib)
 (load (expand-file-name "support.el" (file-name-directory load-file-name)) nil t)
@@ -31,7 +46,7 @@
    "\n  </Section>\n</Container>;\n"))
 
 (defun jsx-jedi-benchmark--time (function)
-  "Measure one FUNCTION call, returning elapsed and GC measurements."
+  "Call FUNCTION and return (ELAPSED-MS GC-COUNT GC-MS)."
   (let ((start (current-time)) (count gcs-done) (gc-time gc-elapsed))
     (funcall function)
     (list (* 1000.0 (float-time (time-subtract (current-time) start)))
@@ -46,7 +61,9 @@
       (/ (+ (nth (1- middle) sorted) (nth middle sorted)) 2.0))))
 
 (defun jsx-jedi-benchmark--run (filler-lines target-lines samples)
-  "Measure commands for a fixture, keeping setup outside SAMPLES."
+  "Measure SAMPLES runs per command after one unreported warm-up.
+The fixture has FILLER-LINES outside a TARGET-LINES subtree.  Time each
+command and subsequent parsing separately, keeping setup outside both."
   (with-temp-buffer
     (let ((source (jsx-jedi-benchmark--fixture filler-lines target-lines))
           (pulse-flag nil)

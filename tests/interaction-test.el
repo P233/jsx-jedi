@@ -1,5 +1,10 @@
 ;;; interaction-test.el --- Mode and command-loop regressions -*- lexical-binding: t; -*-
 
+;; Run via scripts/test.el, which loads the shared buffer helpers first.
+;; Avy uses its own key-reading path; undo/redo runs through keyboard macros.
+;; Prompt cancellation replaces read-string and does not exercise a real
+;; minibuffer.  Visual labels, focus and themes still need GUI validation.
+
 (require 'ert)
 (require 'cl-lib)
 (require 'js)
@@ -77,6 +82,37 @@
                 (should-not (overlay-buffer overlay))))
           (pulse-momentary-unhighlight))))))
 
+(ert-deftest jsx-jedi-test-avy-scope-stays-in-selected-window ()
+  (dolist (window-setting '(nil t all-frames))
+    (dolist (prefix '(nil (4)))
+      (save-window-excursion
+        (jsx-jedi-test--with-buffer "const outside = <A|>alpha beta</A>; const beyond = 1;"
+          (switch-to-buffer (current-buffer))
+          (delete-other-windows)
+          (let* ((origin-window (selected-window))
+                 (other-window (split-window-below))
+                 (avy-all-windows window-setting)
+                 (avy-all-windows-alt 'all-frames)
+                 (current-prefix-arg prefix)
+                 (info (jsx-jedi--find-node-info jsx-jedi-avy-node-types))
+                 candidates)
+            (with-temp-buffer
+              (insert "const foreign = <Other>foreign destination</Other>;")
+              (set-window-buffer other-window (current-buffer))
+              (with-selected-window origin-window
+                ;; Keep Avy's real candidate search; inspect before key selection.
+                (cl-letf (((symbol-function 'avy-process)
+                           (lambda (found &rest _) (setq candidates found))))
+                  (jsx-jedi-avy-word))
+                (should candidates)
+                (dolist (candidate candidates)
+                  (should (eq (avy-candidate-wnd candidate) origin-window))
+                  (should (<= (nth 1 info) (avy-candidate-beg candidate)))
+                  (should (< (avy-candidate-beg candidate) (nth 2 info))))
+                (should (eq avy-all-windows window-setting))
+                (should (eq avy-all-windows-alt 'all-frames))
+                (should (eq (selected-window) origin-window))))))))))
+
 (ert-deftest jsx-jedi-test-command-loop-multiple-edits-undo-redo ()
   (save-window-excursion
     (jsx-jedi-test--with-buffer "const x = <A| />;"
@@ -121,5 +157,74 @@
           (should (equal (jsx-jedi-test--text) before))
           (execute-kbd-macro (kbd "<f7>"))
           (should (equal (jsx-jedi-test--text) (nth 2 case))))))))
+
+(ert-deftest jsx-jedi-test-editing-boundaries-across-major-modes ()
+  (dolist (mode '((js-ts-mode javascript)
+                  (typescript-ts-mode typescript)
+                  (tsx-ts-mode tsx)))
+    (dolist (case
+             '((jsx-jedi-substitute "function f() { ret|urn original; }"
+                "function f() { return 1 +\n2; }" "1 +\n2")
+               (jsx-jedi-substitute "const x = `or|iginal`;"
+                "const x = `first\n  second`;" "first\n  second")
+               (jsx-jedi-duplicate "let count = 0;\n(|count++)"
+                "let count = 0;\n(count++);\n(count++)")
+               (jsx-jedi-kill "const xs = [{| a: 1 } /* note */, 2];"
+                "const xs = [ /* note */ 2];")))
+      (with-temp-buffer
+        (let* ((source (nth 1 case))
+               (position (string-match "|" source))
+               (kill-ring (list (or (nth 3 case) "previous kill")))
+               (kill-ring-yank-pointer kill-ring)
+               (last-command nil)
+               (pulse-flag nil))
+          (insert (substring source 0 position) (substring source (1+ position)))
+          (funcall (car mode))
+          (goto-char (1+ position))
+          (funcall (car case))
+          (should (equal (jsx-jedi-test--text) (nth 2 case)))
+          (should-not (treesit-node-check
+                       (treesit-buffer-root-node (cadr mode)) 'has-error)))))))
+
+(ert-deftest jsx-jedi-test-editing-boundaries-command-loop-undo-redo ()
+  (dolist (case
+           '((jsx-jedi-substitute "function f() { ret|urn original; }"
+              "function f() { return 1 +\n2; }" "1 +\n2")
+             (jsx-jedi-duplicate "let count = 0;\n(|count++)"
+              "let count = 0;\n(count++);\n(count++)")
+             (jsx-jedi-kill "f({| a: 1 } /* note */, 2);"
+              "f( /* note */ 2);")
+             (jsx-jedi-kill "f(1, /* note */ {| a: 1 });"
+              "f(1 /* note */ );")))
+    (save-window-excursion
+      (jsx-jedi-test--with-buffer (nth 1 case)
+        (switch-to-buffer (current-buffer))
+        (let ((before (jsx-jedi-test--text)))
+          (when (nth 3 case) (setq kill-ring (list (nth 3 case))))
+          (use-local-map (make-sparse-keymap))
+          (local-set-key (kbd "<f5>") (car case))
+          (local-set-key (kbd "<f6>") #'undo-only)
+          (local-set-key (kbd "<f7>") #'undo-redo)
+          (execute-kbd-macro (kbd "<f5>"))
+          (should (equal (jsx-jedi-test--text) (nth 2 case)))
+          (execute-kbd-macro (kbd "<f6>"))
+          (should (equal (jsx-jedi-test--text) before))
+          (execute-kbd-macro (kbd "<f7>"))
+          (should (equal (jsx-jedi-test--text) (nth 2 case)))
+          (jsx-jedi-test--assert-valid))))))
+
+(ert-deftest jsx-jedi-test-duplicate-typescript-assertions-stay-separate ()
+  (with-temp-buffer
+    (insert "<number>value")
+    (typescript-ts-mode)
+    (goto-char 2)
+    (let ((pulse-flag nil))
+      (jsx-jedi-duplicate))
+    (should (equal (jsx-jedi-test--text) "<number>value;\n<number>value"))
+    (should (= 2 (length (treesit-query-capture
+                         (treesit-buffer-root-node 'typescript)
+                         '((expression_statement) @statement) nil nil t))))
+    (should-not (treesit-node-check
+                 (treesit-buffer-root-node 'typescript) 'has-error))))
 
 ;;; interaction-test.el ends here

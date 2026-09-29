@@ -153,6 +153,35 @@
     (should (eq (char-after) ?\"))
     (jsx-jedi-test--assert-valid)))
 
+(ert-deftest jsx-jedi-test-empty-declaration-preserves-leading-comments ()
+  (dolist (keyword '("const" "let" "var"))
+    (jsx-jedi-test--with-buffer
+        (concat "|" keyword " /* why */ /* detail */ x = original, y = keep;")
+      (jsx-jedi-empty)
+      (should (equal (jsx-jedi-test--text)
+                     (concat keyword " /* why */ /* detail */ x = , y = keep;")))
+      (should (equal (car kill-ring) "original"))
+      (should (looking-at-p ", y = keep;")))))
+
+(ert-deftest jsx-jedi-test-substitute-declaration-preserves-leading-comments ()
+  (dolist (keyword '("const" "let" "var"))
+    (jsx-jedi-test--with-buffer
+        (concat "|" keyword " /* why */ /* detail */ x = original, y = keep;")
+      (setq kill-ring '("replacement"))
+      (jsx-jedi-substitute)
+      (should (equal (jsx-jedi-test--text)
+                     (concat keyword " /* why */ /* detail */ x = replacement, y = keep;")))
+      (should (equal (car kill-ring) "original"))
+      (should (looking-at-p ", y = keep;"))
+      (jsx-jedi-test--assert-valid))))
+
+(ert-deftest jsx-jedi-test-declaration-without-first-initializer-is-unchanged ()
+  (dolist (keyword '("let" "var"))
+    (dolist (command '(jsx-jedi-empty jsx-jedi-substitute))
+      (jsx-jedi-test--with-buffer
+          (concat "|" keyword " /* why */ first, second = keep;")
+        (jsx-jedi-test--unchanged command)))))
+
 (ert-deftest jsx-jedi-test-substitute-empty-string ()
   (jsx-jedi-test--with-buffer "const x = \"|\";"
     (setq kill-ring '("replacement"))
@@ -479,6 +508,40 @@
     (should (equal (buffer-substring-no-properties (region-beginning) (region-end))
                    "// one\n// two"))))
 
+(ert-deftest jsx-jedi-test-comment-block-boundaries ()
+  (dolist (case '(("const x = 1; // trailing\n// hea|der\nconst y = 2;" "// header")
+                  ("const x = 1; // trai|ling\n// header\nconst y = 2;" "// trailing")
+                  ("// one\n\n// tw|o\nx;" "// two")
+                  ("/** doc */\n// eslint-disable-|next-line\nf();"
+                   "// eslint-disable-next-line")
+                  ("/** d|oc */\n// eslint-disable-next-line\nf();" "/** doc */")
+                  ("/* a\n   b */\n// |c\nx;" "// c")
+                  ("// |a\n/* b */ foo();" "// a")
+                  ("function f() {\n  work()\n  // o|ne\n  // two\n}" "// one\n  // two")
+                  ("f(\n  x,\n  // o|ne\n  // two\n  y,\n);" "// one\n  // two")
+                  ("const x = <p>\n  {\n    // o|ne\n    // two\n  }\n</p>;"
+                   "// one\n    // two")
+                  ("// one  \n// tw|o\t\nx;" "// one  \n// two\t")
+                  ("// one\r\n// tw|o\r\nx;" "// one\r\n// two")))
+    (jsx-jedi-test--with-buffer (car case)
+      (ert-info ((car case))
+        (jsx-jedi-copy)
+        (should (equal (car kill-ring) (cadr case)))))))
+
+(ert-deftest jsx-jedi-test-kill-comment-keeps-trailing-comment ()
+  (jsx-jedi-test--with-buffer "const x = 1; // trailing\n// hea|der\nconst y = 2;"
+    (jsx-jedi-kill)
+    (should (equal (jsx-jedi-test--text) "const x = 1; // trailing\nconst y = 2;"))
+    (should (equal (car kill-ring) "// header"))
+    (jsx-jedi-test--assert-valid)))
+
+(ert-deftest jsx-jedi-test-uncomment-keeps-trailing-comment ()
+  (jsx-jedi-test--with-buffer "const x = 1; // trailing\n// hea|der\nconst y = 2;"
+    (jsx-jedi-comment-uncomment)
+    (should (equal (jsx-jedi-test--text)
+                   "const x = 1; // trailing\nheader\nconst y = 2;"))
+    (jsx-jedi-test--assert-valid)))
+
 (ert-deftest jsx-jedi-test-kill-object-pair ()
   (jsx-jedi-test--with-buffer "const x = { a|: 1, b: 2 };"
     (jsx-jedi-kill)
@@ -657,6 +720,126 @@
   (dolist (command '(jsx-jedi-empty jsx-jedi-substitute))
     (jsx-jedi-test--with-buffer "function f() { ret|urn /* explanation */; }"
       (jsx-jedi-test--unchanged command))))
+
+(ert-deftest jsx-jedi-test-substitute-preserves-multiline-text ()
+  (let ((jsx-jedi-empty-node-types (cons "throw_statement" jsx-jedi-empty-node-types)))
+    (dolist (case
+             '(("function f() { ret|urn original; }" "1 +\n2"
+                "function f() { return 1 +\n2; }" "original")
+               ("function f() { thr|ow original; }" "new Error(\n'message'\n)"
+                "function f() { throw new Error(\n'message'\n); }" "original")
+               ("const x = `or|iginal`;" "first\n  second"
+                "const x = `first\n  second`;" "original")
+               ("const x = <A|>original</A>;" "first\n  second"
+                "const x = <A>first\n  second</A>;" "original")
+               ("const x = {| a: 1 };" "text: `one\n   two\n zero`"
+                "const x = {text: `one\n   two\n zero`};" " a: 1 ")
+               ("const x = 'or|iginal';" "first\\\nsecond"
+                "const x = 'first\\\nsecond';" "original")))
+      (jsx-jedi-test--with-buffer (car case)
+        (setq kill-ring (list (nth 1 case)))
+        (jsx-jedi-substitute)
+        (should (equal (jsx-jedi-test--text) (nth 2 case)))
+        (should (equal (car kill-ring) (nth 3 case)))
+        (jsx-jedi-test--assert-valid)))))
+
+(ert-deftest jsx-jedi-test-duplicate-rejects-single-statement-contexts ()
+  (dolist (source '("if (ok) wo|rk();"
+                    "if (ok) wo|rk(); else other();"
+                    "if (ok) other(); else wo|rk();"
+                    "for (le|t i = 0; i < 3; i++) work();"
+                    "for (const x of xs) wo|rk(x);"
+                    "while (ok) wo|rk();"
+                    "do wo|rk(); while (ok);"
+                    "label: wo|rk();"
+                    "with (obj) wo|rk();"))
+    (jsx-jedi-test--with-buffer source
+      (let ((transient-mark-mode t))
+        (set-mark (point-min))
+        (setq mark-active t)
+        (jsx-jedi-test--unchanged #'jsx-jedi-duplicate 'user-error)))))
+
+(ert-deftest jsx-jedi-test-duplicate-keeps-statement-list-support ()
+  (dolist (source '("wo|rk();"
+                    "if (ok) { wo|rk(); }"
+                    "while (ok) { wo|rk(); }"
+                    "switch (x) { case 1: wo|rk(); break; }"
+                    "switch (x) { default: wo|rk(); }"))
+    (jsx-jedi-test--with-buffer source
+      (jsx-jedi-duplicate)
+      (should (= 2 (length (treesit-query-capture
+                           (treesit-buffer-root-node 'tsx)
+                           '((expression_statement) @statement) nil nil t))))
+      (jsx-jedi-test--assert-valid))))
+
+(ert-deftest jsx-jedi-test-duplicate-preserves-automatic-semicolon-boundaries ()
+  (dolist (case '(("(|value)" "(value);\n(value)")
+                  ("[|1].forEach(work)" "[1].forEach(work);\n[1].forEach(work)")
+                  ("`he|llo`" "`hello`;\n`hello`")
+                  ("/te|xt/.test(value)" "/text/.test(value);\n/text/.test(value)")
+                  ("+va|lue" "+value;\n+value")
+                  ("-va|lue" "-value;\n-value")
+                  ("(|value);" "(value);\n(value);")
+                  ("wo|rk()" "work()\nwork()")
+                  ("!va|lue" "!value\n!value")))
+    (jsx-jedi-test--with-buffer (car case)
+      (jsx-jedi-duplicate)
+      (should (equal (jsx-jedi-test--text) (cadr case)))
+      (should (= 2 (length (treesit-query-capture
+                           (treesit-buffer-root-node 'tsx)
+                           '((expression_statement) @statement) nil nil t))))
+      (should (equal kill-ring '("previous kill")))
+      (jsx-jedi-test--assert-valid))))
+
+(ert-deftest jsx-jedi-test-kill-separators-preserves-intervening-comments ()
+  (dolist (case
+           '(("const x = { a|: 1 /* note */, b: 2 };"
+              "const x = {  /* note */ b: 2 };" "a: 1")
+             ("const x = { a|: 1 /* one */ /* two */, /* three */ b: 2 };"
+              "const x = {  /* one */ /* two */ /* three */ b: 2 };" "a: 1")
+             ("function f(a|: number /* note */, b: number) {}"
+              "function f( /* note */ b: number) {}" "a: number")
+             ("const x = [{| a: 1 } /* note */, 2];"
+              "const x = [ /* note */ 2];" "{ a: 1 }")
+             ("f({| a: 1 } /* note */, 2);"
+              "f( /* note */ 2);" "{ a: 1 }")
+             ("f(1, /* note */ {| a: 1 });"
+              "f(1 /* note */ );" "{ a: 1 }")
+             ("const x = { a: 1, /* note */ b|: 2 };"
+              "const x = { a: 1 /* note */  };" "b: 2")
+             ("const x = { a|: 1 // note\n, b: 2 };"
+              "const x = {  // note\n b: 2 };" "a: 1")))
+    (jsx-jedi-test--with-buffer (car case)
+      (jsx-jedi-kill)
+      (should (equal (jsx-jedi-test--text) (nth 1 case)))
+      (should (equal (car kill-ring) (nth 2 case)))
+      (jsx-jedi-test--assert-valid))))
+
+(ert-deftest jsx-jedi-test-selection-climbs-through-equal-span-ancestors ()
+  (dolist (text '("42" "'literal'"))
+    (jsx-jedi-test--with-buffer (concat "function f() {\n | " text "\n}")
+      (let ((before (jsx-jedi-test--text)) (position (point)))
+        (should (equal (car (jsx-jedi--find-node-info jsx-jedi-mark-node-types))
+                       "statement_block"))
+        (jsx-jedi-mark)
+        (should (equal (buffer-substring-no-properties (point) (mark))
+                       (concat "{\n  " text "\n}")))
+        (goto-char position)
+        (jsx-jedi-copy)
+        (should (equal (car kill-ring) before))
+        (should (equal (jsx-jedi-test--text) before))))))
+
+(ert-deftest jsx-jedi-test-kill-separated-comma-rolls-back-on-read-only-node ()
+  (dolist (source '("f({| a: 1 } /* note */, 2);"
+                    "f(1, /* note */ {| a: 1 });"))
+    (jsx-jedi-test--with-buffer source
+      (let* ((before (jsx-jedi-test--text))
+             (position (point))
+             (info (jsx-jedi--find-node-info jsx-jedi-kill-node-types)))
+        (put-text-property (nth 1 info) (nth 2 info) 'read-only t)
+        (should-error (jsx-jedi-kill) :type 'text-read-only)
+        (should (equal (jsx-jedi-test--text) before))
+        (should (= (point) position))))))
 
 (provide 'jsx-jedi-test)
 ;;; jsx-jedi-test.el ends here

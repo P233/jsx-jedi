@@ -1,5 +1,8 @@
 ;;; configuration-test.el --- Customize lifecycle tests -*- lexical-binding: t; -*-
 
+;; Run via scripts/test.el so child Emacs processes load the same exact
+;; source or bytecode file as the parent suite, with fresh Customize state.
+
 (require 'ert)
 (require 'cl-lib)
 

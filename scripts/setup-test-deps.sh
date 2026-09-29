@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Build pinned parsers from checked-in C sources; no grammar generator needed.
+# Usage: bash scripts/setup-test-deps.sh [DESTINATION]
+# Requires macOS or Linux, Git and a C compiler (CC selects its executable).
+# DESTINATION defaults to .test-deps and must be absent or empty.
+# Writes Avy to avy/, libraries to grammars/ and revisions to versions.txt
+# inside that destination, without changing the user's Emacs configuration.
 set -euo pipefail
 
 deps_dir=${1:-.test-deps}

@@ -1,12 +1,12 @@
-;;; jsx-jedi.el --- Enlightened JS/TS/JSX editing powers  -*- lexical-binding: t; -*-
+;;; jsx-jedi.el --- Structural JS/TS/JSX editing  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2024-2025 Peiwen Lu
+;; Copyright (C) 2024-2026 Peiwen Lu
 
 ;; Author: Peiwen Lu <hi@peiwen.lu>
-;; Version: 0.0.1
+;; Version: 0.1.0
 ;; Created: 20 May 2024
 ;; Keywords: languages convenience tools tree-sitter javascript typescript jsx react
-;; URL: https://github.com/p233-studio/jsx-jedi
+;; URL: https://github.com/p233/jsx-jedi
 ;; Compatibility: emacs-version >= 29.1
 ;; Package-Requires: ((emacs "29.1") (avy "0.5"))
 
@@ -29,11 +29,20 @@
 
 ;;; Commentary:
 
-;; JSX-Jedi brings enlightened editing powers to your JavaScript, TypeScript
-;; and JSX development experience in Emacs.
-
-;; For detailed documentation and usage instructions, visit:
-;; https://github.com/p233-studio/jsx-jedi#readme
+;; Structural editing commands for `js-ts-mode', `typescript-ts-mode' and
+;; `tsx-ts-mode'.  Use `tsx-ts-mode' for both JSX and TSX files.  Emacs must
+;; have built-in tree-sitter support and the grammars for the active mode.
+;; Avy provides word navigation within the selected syntax range.
+;;
+;; Loading this package enables `jsx-jedi-mode' on the three major-mode
+;; hooks.  Its keymap is empty; bind commands in `jsx-jedi-mode-map' or call
+;; them with M-x.  Enable the minor mode manually in already-open buffers.
+;;
+;; Each command selects the closest node in its node-type option.  Use
+;; M-x customize-group RET jsx-jedi RET to configure these independent lists.
+;;
+;; Installation, command reference and development instructions:
+;; https://github.com/p233/jsx-jedi#readme
 
 ;;; Code:
 
@@ -45,7 +54,10 @@
 ;;; Variables
 
 (defgroup jsx-jedi nil
-  "Structural JavaScript, TypeScript and JSX editing."
+  "Structural JavaScript, TypeScript and JSX editing.
+Node-type options select the closest matching node at point; their
+list order does not set priority.  Adding a type does not implement
+syntax or separator handling for that type."
   :group 'languages
   :prefix "jsx-jedi-")
 
@@ -79,7 +91,8 @@ Customize reset.  Changing this option does not synchronize them."
                                                 "throw_statement"
                                                 "type_alias_declaration"))
   "Node types selected for killing.
-This controls selection, not syntax support or separator handling."
+Adjacent commas are handled only for objects, object properties and
+required parameters."
   :type '(repeat string)
   :group 'jsx-jedi)
 
@@ -109,10 +122,12 @@ This controls selection, not syntax support or separator handling."
                                                 "type_parameters"
                                                 "variable_declaration"
                                                 "template_string"))
-  "Node types selected by empty and substitute.
-Only nodes with supported content bounds can be changed.  The optional
-object_type and throw_statement ranges are supported but not enabled
-by default."
+  "Node types selected by `jsx-jedi-empty' and `jsx-jedi-substitute'.
+Only nodes with supported content bounds can be changed.  Optional
+object_type selects type members inside braces; throw_statement selects
+the thrown expression.  Neither is enabled by default.  Closer matches,
+such as property_signature, still take precedence.  Boolean attributes and
+self-closing elements remain selection stops despite having no content."
   :type '(repeat string)
   :group 'jsx-jedi)
 
@@ -128,7 +143,8 @@ by default."
                                                 "string"
                                                 "template_string"))
   "Node types selected for deleting to the end of content.
-Only supported content ranges can be changed."
+Only supported content ranges can be changed.  Adding a container type
+can make `jsx-jedi-zap' delete following members in that container."
   :type '(repeat string)
   :group 'jsx-jedi)
 
@@ -153,7 +169,9 @@ Only supported content ranges can be changed."
                                                 "throw_statement"
                                                 "type_alias_declaration"))
   "Node types selected for copying.
-Any grammar node may be selected; comments use the whole comment block."
+Any grammar node may be selected; comments use the whole comment block.
+Add variable_declaration or enum_declaration to select those declarations
+directly."
   :type '(repeat string)
   :group 'jsx-jedi)
 
@@ -199,7 +217,9 @@ Selection does not add support for new syntax or insertion contexts."
                                                 "throw_statement"
                                                 "type_alias_declaration"))
   "Node types selected for marking.
-Any grammar node may be selected; comments use the whole comment block."
+Any grammar node may be selected; comments use the whole comment block.
+Add variable_declaration or enum_declaration to select those declarations.
+Repeating `jsx-jedi-mark' does not expand the selection to a parent."
   :type '(repeat string)
   :group 'jsx-jedi)
 
@@ -242,7 +262,8 @@ the syntax rules for JSX comments."
                                                 "throw_statement"
                                                 "type_alias_declaration"))
   "Node types defining the scope of Avy word navigation.
-Any grammar node may provide a navigation scope."
+Any grammar node may provide a navigation scope.  Adding a smaller target
+limits word candidates to that node instead of its enclosing scope."
   :type '(repeat string)
   :group 'jsx-jedi)
 
@@ -262,15 +283,46 @@ Selection does not redefine JSX element shapes or valid destination syntax."
   (goto-char start))
 
 
+(defun jsx-jedi--standalone-line-comment-p (node)
+  "Return non-nil when NODE is a // comment alone on its line."
+  (save-excursion
+    (goto-char (treesit-node-start node))
+    (and (looking-at-p "//")
+         (progn (skip-chars-backward " \t") (bolp))
+         (progn (goto-char (treesit-node-end node))
+                (skip-chars-forward " \t\r")
+                (eolp)))))
+
+(defun jsx-jedi--adjacent-line-comment (node direction)
+  "Return the comment joining NODE's block in DIRECTION, or nil.
+DIRECTION is negative for the previous line and positive for the next."
+  (let* ((before (< direction 0))
+         (sibling (if before
+                      (treesit-node-prev-sibling node)
+                    (treesit-node-next-sibling node))))
+    (and (equal (treesit-node-type sibling) "comment")
+         (jsx-jedi--standalone-line-comment-p sibling)
+         ;; Exactly one line break: a blank line ends the block.
+         (string-match-p "\\`[ \t\r]*\n[ \t]*\\'"
+                         (buffer-substring-no-properties
+                          (treesit-node-end (if before sibling node))
+                          (treesit-node-start (if before node sibling))))
+         sibling)))
+
 (defun jsx-jedi--find-comment-block-bounds (node)
-  "Return bounds (START . END) of the comment block containing NODE."
-  (let ((start-node node)
-        (end-node node))
-    (while (string= (treesit-node-type (treesit-node-prev-sibling start-node)) "comment")
-      (setq start-node (treesit-node-prev-sibling start-node)))
-    (while (and end-node (string= (treesit-node-type (treesit-node-next-sibling end-node)) "comment"))
-      (setq end-node (treesit-node-next-sibling end-node)))
-    (cons (treesit-node-start start-node) (treesit-node-end end-node))))
+  "Return (START . END) of the comment block containing NODE.
+A block is a run of // comments on consecutive lines, each alone on its
+line.  Block comments, trailing comments and runs separated by a blank
+line stand alone."
+  (let ((first node)
+        (last node)
+        next)
+    (when (jsx-jedi--standalone-line-comment-p node)
+      (while (setq next (jsx-jedi--adjacent-line-comment first -1))
+        (setq first next))
+      (while (setq next (jsx-jedi--adjacent-line-comment last 1))
+        (setq last next)))
+    (cons (treesit-node-start first) (treesit-node-end last))))
 
 
 (defun jsx-jedi--find-node-at-point (node position)
@@ -280,18 +332,16 @@ Selection does not redefine JSX element shapes or valid destination syntax."
           (end (treesit-node-end node)))
       (if (and (<= start position) (<= position end))
           node
-        (let ((parent (treesit-node-parent node)))
-          (when (and parent
-                     (or (not (= start (treesit-node-start parent)))
-                         (not (= end (treesit-node-end parent)))))
-            (jsx-jedi--find-node-at-point parent position)))))))
+        (jsx-jedi--find-node-at-point (treesit-node-parent node) position)))))
 
 
 (defun jsx-jedi--find-node-info (valid-types)
-  "Find node at point matching VALID-TYPES.
-Return list (TYPE START END NODE) or nil.
-START and END delimit the operation range, which can span a comment block.
-NODE is the syntax node at point, not necessarily the whole operation range."
+  "Find the closest node at point whose type is in VALID-TYPES.
+Search the node and its ancestors.
+Return (TYPE START END NODE), or nil if no node matches.  For comments,
+START and END span the block from `jsx-jedi--find-comment-block-bounds',
+while NODE remains the individual comment at point.  Otherwise NODE is
+the selected ancestor."
   (let ((node (treesit-node-at (point))))
     (if (and (string= (treesit-node-type node) "comment")
              (member "comment" valid-types))
@@ -315,7 +365,10 @@ Selection preferences must not redefine these grammar facts."
   (member (treesit-node-type node) '("jsx_element" "jsx_self_closing_element")))
 
 (defun jsx-jedi--find-tag-info ()
-  "Select a JSX tag using preferences, rejecting unsupported node types."
+  "Select a JSX element using `jsx-jedi-tag-node-types'.
+Return node info or nil as in `jsx-jedi--find-node-info'.  Signal
+`user-error' if a custom type selects a non-element.  Fragments count as
+elements; commands needing a name must also use `jsx-jedi--tag-name-node'."
   (when-let* ((info (jsx-jedi--find-node-info jsx-jedi-tag-node-types)))
     (unless (jsx-jedi--jsx-element-p (nth 3 info))
       (user-error "This operation requires a JSX element"))
@@ -330,9 +383,22 @@ Selection preferences must not redefine these grammar facts."
        "name")
       (user-error "This operation requires a named JSX tag")))
 
+(defun jsx-jedi--first-non-comment-child (node)
+  "Return the first named child of NODE that is not a comment, or nil.
+Comments are named children and can precede operands and declarators."
+  (let ((child (treesit-node-child node 0 t)))
+    (while (equal (treesit-node-type child) "comment")
+      (setq child (treesit-node-next-sibling child t)))
+    child))
+
 (defun jsx-jedi--content-bounds (type node)
-  "Return the editable content bounds of NODE of TYPE, or nil.
-Boolean attributes and self-closing elements have no editable content."
+  "Return editable (START . END) for NODE of TYPE, excluding delimiters.
+Containers select their interior; other supported nodes select a value
+or operand.  Variable declarations use only the first declarator.
+Return and throw operands exclude adjacent comments.
+Return nil for unsupported types or absent content, including boolean
+attributes and self-closing elements.  Equal bounds mean an editable
+empty range, allowing `jsx-jedi-substitute' to insert there."
   (let ((bounds
          (pcase type
            ("jsx_attribute"
@@ -361,16 +427,12 @@ Boolean attributes and self-closing elements have no editable content."
             (when-let* ((args (treesit-node-child-by-field-name node "arguments")))
               (jsx-jedi--content-bounds "arguments" args)))
            ((or "lexical_declaration" "variable_declaration")
-            (when-let* ((declarator (treesit-node-child node 0 t))
+            (when-let* ((declarator (jsx-jedi--first-non-comment-child node))
                         (value (treesit-node-child-by-field-name declarator "value")))
               (cons (treesit-node-start value) (treesit-node-end value))))
            ((or "return_statement" "throw_statement")
-            (let ((value (treesit-node-child node 0 t)))
-              ;; Comments are named children too, but are not the operand.
-              (while (equal (treesit-node-type value) "comment")
-                (setq value (treesit-node-next-sibling value t)))
-              (when value
-                (cons (treesit-node-start value) (treesit-node-end value)))))
+            (when-let* ((value (jsx-jedi--first-non-comment-child node)))
+              (cons (treesit-node-start value) (treesit-node-end value))))
            ((or "arguments" "array" "array_pattern" "export_clause"
                 "formal_parameters" "jsx_expression" "named_imports"
                 "object" "object_pattern" "object_type" "parenthesized_expression"
@@ -386,7 +448,11 @@ Boolean attributes and self-closing elements have no editable content."
 ;;; Commands
 
 (defun jsx-jedi-kill ()
-  "Kill the syntax node at point."
+  "Kill the closest node selected by `jsx-jedi-kill-node-types'.
+Consecutive standalone // comment lines are killed together.  For objects,
+object properties and required parameters, include an adjacent comma when
+present.  If comments separate the node from its comma, preserve those
+comments and delete the comma separately without adding it to the kill ring."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-kill-node-types))
               (type (nth 0 node-info))
@@ -394,60 +460,80 @@ Boolean attributes and self-closing elements have no editable content."
               (end (nth 2 node-info))
               (node (nth 3 node-info)))
     (let ((kill-start start)
-          (kill-end end))
-      ;; For object, pair and other nodes, handle commas
+          (kill-end end)
+          separate-comma)
       (when (member type '("object" "pair" "required_parameter"))
-        (let ((next-node (treesit-node-next-sibling node))
-              (prev-node (treesit-node-prev-sibling node)))
+        (let* ((next-node (treesit-node-next-sibling node))
+               (prev-node (treesit-node-prev-sibling node))
+               (next-comment-p (equal (treesit-node-type next-node) "comment"))
+               (prev-comment-p (equal (treesit-node-type prev-node) "comment")))
+          (while (equal (treesit-node-type next-node) "comment")
+            (setq next-node (treesit-node-next-sibling next-node)))
+          (while (equal (treesit-node-type prev-node) "comment")
+            (setq prev-node (treesit-node-prev-sibling prev-node)))
           (cond
-           ;; Trailing comma
            ((and next-node (string= (treesit-node-text next-node t) ","))
-            (setq kill-end (save-excursion
-                             (goto-char (treesit-node-end next-node))
-                             (skip-chars-forward " \t")
-                             (point))))
-           ;; Leading comma
+            (if next-comment-p
+                (setq separate-comma next-node)
+              (setq kill-end (save-excursion
+                               (goto-char (treesit-node-end next-node))
+                               (skip-chars-forward " \t")
+                               (point)))))
            ((and prev-node (string= (treesit-node-text prev-node t) ","))
-            (setq kill-start (save-excursion
-                               (goto-char (treesit-node-start prev-node))
-                               (skip-chars-backward " \t")
-                               (point)))))))
-      (kill-region kill-start kill-end)
-      (when (save-excursion
-              (beginning-of-line)
-              (looking-at-p "^[[:space:]]*$"))
-        (delete-blank-lines)
-        (indent-for-tab-command)))))
+            (if prev-comment-p
+                (setq separate-comma prev-node)
+              (setq kill-start (save-excursion
+                                 (goto-char (treesit-node-start prev-node))
+                                 (skip-chars-backward " \t")
+                                 (point))))))))
+      (atomic-change-group
+        (when separate-comma
+          (let ((comma-start (treesit-node-start separate-comma))
+                (comma-end (treesit-node-end separate-comma)))
+            (delete-region comma-start comma-end)
+            (when (< comma-start kill-start)
+              (setq kill-start (- kill-start (- comma-end comma-start))
+                    kill-end (- kill-end (- comma-end comma-start))))))
+        (kill-region kill-start kill-end)
+        (when (save-excursion
+                (beginning-of-line)
+                (looking-at-p "^[[:space:]]*$"))
+          (delete-blank-lines)
+          (indent-for-tab-command))))))
 
 
 (defun jsx-jedi-empty ()
-  "Empty content of the syntax node at point."
+  "Kill the selected node's content and leave point at its start.
+Select using `jsx-jedi-empty-node-types', retaining delimiters or the
+surrounding statement.  Removing a required value can leave incomplete
+code for further editing.  Nodes with no editable content are unchanged."
   (interactive)
   (when-let* ((info (jsx-jedi--find-node-info jsx-jedi-empty-node-types))
               (bounds (jsx-jedi--content-bounds (nth 0 info) (nth 3 info))))
     (jsx-jedi--kill-region-and-goto-start (car bounds) (cdr bounds))))
 
 (defun jsx-jedi-substitute ()
-  "Substitute content of the syntax node at point with yanked text."
+  "Replace selected content with the current `kill-ring' entry.
+Use the same ranges as `jsx-jedi-empty'.  Trim the replacement's outer
+whitespace, preserving its internal line breaks and indentation.  Insert
+without extra line breaks or reindentation, which could alter return/throw
+operands or literal text.  Save the removed content to the kill ring and
+group the replacement into one undo step.  Nodes with no editable content
+are unchanged."
   (interactive)
   (when-let* ((info (jsx-jedi--find-node-info jsx-jedi-empty-node-types))
               (bounds (jsx-jedi--content-bounds (nth 0 info) (nth 3 info))))
     (let ((text (string-trim (current-kill 0))))
       (atomic-change-group
         (jsx-jedi--kill-region-and-goto-start (car bounds) (cdr bounds))
-        (if (string-match-p "\n" text)
-            (progn
-              (newline)
-              (let ((start (point)))
-                (insert text)
-                (newline)
-                (indent-region start (point))
-                (indent-according-to-mode)))
-          (insert text))))))
+        (insert text)))))
 
 
 (defun jsx-jedi-zap ()
-  "Delete from point to the end of the content of the syntax node."
+  "Delete from point to the selected content's end, without killing it.
+Select using `jsx-jedi-zap-node-types'; leave the kill ring unchanged.
+For selected JSX opening or self-closing tags, cover attributes after
+the tag name.  Do nothing if point is outside the editable content."
   (interactive)
   (when-let* ((info (jsx-jedi--find-node-info jsx-jedi-zap-node-types)))
     (pcase-let* ((`(,type ,_start ,_end ,node) info)
@@ -463,7 +549,9 @@ Boolean attributes and self-closing elements have no editable content."
 
 
 (defun jsx-jedi-copy ()
-  "Copy syntax node at point to kill ring."
+  "Copy and highlight the node selected by `jsx-jedi-copy-node-types'.
+Copy to the kill ring without moving point or editing the buffer.
+Consecutive standalone // comment lines are copied together."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-copy-node-types))
               (start (nth 1 node-info))
@@ -473,7 +561,13 @@ Boolean attributes and self-closing elements have no editable content."
 
 
 (defun jsx-jedi-duplicate ()
-  "Duplicate the selected syntax range in its current sibling context."
+  "Duplicate the range selected by `jsx-jedi-duplicate-node-types'.
+Insert after the original without changing the kill ring.  Add commas
+for object properties and for objects in arrays or argument lists.
+JSX nodes require a JSX children position.  Reject statements in single
+statement branches, loop bodies and loop headers.  Separate expressions
+with a semicolon when a newline alone could join them.  Preserve body
+indentation, leave point at the inserted range's end and highlight the copy."
   (interactive)
   (when-let* ((info (jsx-jedi--find-node-info jsx-jedi-duplicate-node-types)))
     (pcase-let* ((`(,type ,start ,end ,node) info)
@@ -481,20 +575,32 @@ Boolean attributes and self-closing elements have no editable content."
                 (comma-p (or (string= type "pair")
                              (and (string= type "object")
                                   (member parent-type '("array" "arguments")))))
-                (text (buffer-substring-no-properties start end)))
+                (text (buffer-substring-no-properties start end))
+                (semicolon-p
+                 (and (string= type "expression_statement")
+                      (memq (aref text 0) '(?\( ?\[ ?` ?/ ?+ ?- ?<))
+                      (not (string-suffix-p ";" text)))))
       (when (or (and (member type '("jsx_element" "jsx_self_closing_element"
                                    "jsx_expression"))
                      (not (jsx-jedi--jsx-child-p node)))
                 (and (string= type "object") (not comma-p)))
         (user-error "This expression cannot be duplicated in its current context"))
+      (when (and (or (string-suffix-p "_statement" type)
+                     (string-suffix-p "_declaration" type))
+                 (member parent-type '("if_statement" "else_clause"
+                                       "for_statement" "for_in_statement"
+                                       "while_statement" "do_statement"
+                                       "labeled_statement" "with_statement")))
+        (user-error "This statement has no sibling position in its current context"))
       (atomic-change-group
         (goto-char end)
         (when comma-p (insert ","))
+        (when semicolon-p (insert ";"))
         (newline)
         (let ((insert-start (point)))
           (insert text)
-          ;; Siblings share the original indentation context.  Reindenting the
-          ;; body is costly and can change whitespace in JSX or template text.
+          ;; Reindent only the sibling's first line: reindenting its body can
+          ;; change literal whitespace in JSX and template strings.
           (save-excursion
             (goto-char insert-start)
             (indent-according-to-mode))
@@ -506,7 +612,10 @@ Boolean attributes and self-closing elements have no editable content."
 
 
 (defun jsx-jedi-mark ()
-  "Mark syntax node at point."
+  "Select the node chosen by `jsx-jedi-mark-node-types'.
+Leave point at its start and the active mark at its end.  Consecutive
+standalone // comment lines are marked together.  Repeating does not
+expand to a parent."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-mark-node-types))
               (start (nth 1 node-info))
@@ -517,7 +626,13 @@ Boolean attributes and self-closing elements have no editable content."
 
 
 (defun jsx-jedi-comment-uncomment ()
-  "Comment or uncomment syntax node at point."
+  "Toggle a comment at point or comment the closest matching code node.
+Use `jsx-jedi-comment-node-types' for code selection; existing comments
+are detected independently.  Uncomment a JS/TS comment, or its block of
+consecutive standalone // lines, or a standalone JSX block comment.  JSX
+elements must be in a children position.  Reject mixed code/comment JSX
+expressions and attempts to comment out JSX content containing a
+block-comment terminator."
   (interactive)
   (let* ((node (treesit-node-at (point)))
          (comment-p (string= (treesit-node-type node) "comment"))
@@ -529,14 +644,12 @@ Boolean attributes and self-closing elements have no editable content."
                                  (string= (treesit-node-type (treesit-node-prev-sibling node)) "comment")
                                  (string= (treesit-node-type (treesit-node-next-sibling node)) "comment")))))
     (cond
-     ;; Case 1: Current node is a standard JS comment -> Uncomment it
      (js-comment-p
       (let* ((bounds (jsx-jedi--find-comment-block-bounds node))
              (start (car bounds))
              (end (cdr bounds)))
         (uncomment-region start end)))
 
-     ;; Case 2: Current node is a JSX comment -> Uncomment it
      (jsx-comment-p
       (let* ((comment-node (treesit-node-parent node))
              (beg (treesit-node-start comment-node))
@@ -554,7 +667,6 @@ Boolean attributes and self-closing elements have no editable content."
           (goto-char beg)
           (insert (string-trim (substring text 2 -2) "[ \t]*" "[ \t]*")))))
 
-     ;; Case 3: Current node is code -> Comment it
      (t
       (when-let* ((element (treesit-parent-until node (lambda (n)
                                                         (member (treesit-node-type n) jsx-jedi-comment-node-types)) t))
@@ -575,16 +687,25 @@ Boolean attributes and self-closing elements have no editable content."
             (comment-region start end))))))))
 
 (defun jsx-jedi-avy-word ()
-  "Jump to word in syntax node at point using Avy."
+  "Use Avy to jump to a word in the selected syntax range.
+`jsx-jedi-avy-node-types' selects the scope; smaller matching nodes limit
+which word destinations are available.  Search only the selected window,
+independent of Avy's window settings or prefix arguments."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-avy-node-types))
               (start (nth 1 node-info))
               (end (nth 2 node-info)))
-    (avy-goto-word-0 t start end)))
+    ;; These bounds belong to this buffer, not to other visible buffers.
+    (let ((avy-all-windows nil)
+          (avy-all-windows-alt nil))
+      (avy-goto-word-0 nil start end))))
 
 
 (defun jsx-jedi-hoist-tag ()
-  "Hoist JSX element at point, replacing parent."
+  "Replace the enclosing JSX element with the selected node's text.
+Select using `jsx-jedi-hoist-node-types'.  A JSX expression can be promoted
+within JSX children; replacing a JavaScript expression requires a JSX
+element.  Preserve the selected text without reindenting it."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-node-info jsx-jedi-hoist-node-types))
               (node (nth 3 node-info))
@@ -603,7 +724,9 @@ Boolean attributes and self-closing elements have no editable content."
 
 
 (defun jsx-jedi-rename-tag ()
-  "Rename JSX element at point."
+  "Prompt for a new name for the JSX element at point.
+Update opening and closing names together as one undo step.  Require a
+named tag selected by `jsx-jedi-tag-node-types'; fragments are rejected."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-tag-info))
               (type (nth 0 node-info))
@@ -632,7 +755,10 @@ Boolean attributes and self-closing elements have no editable content."
 
 
 (defun jsx-jedi-wrap-tag ()
-  "Wrap JSX element at point with new tag."
+  "Wrap the selected JSX element in a new parent tag.
+Select using `jsx-jedi-tag-node-types'.  Prompt for a tag name with optional
+attributes; use its first word as the closing name.  Preserve existing
+literal content and indent only the new multiline boundaries."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-tag-info))
               (start (nth 1 node-info))
@@ -660,7 +786,11 @@ Boolean attributes and self-closing elements have no editable content."
 
 
 (defun jsx-jedi-unwrap-tag ()
-  "Unwrap content of JSX element at point."
+  "Remove the selected JSX wrapper, preserving its children.
+Select using `jsx-jedi-tag-node-types'.  In JSX children positions, keep
+child text verbatim.  In JavaScript expression positions, require exactly
+one JSX element with no JSX text or expression siblings; formatting-only
+newlines outside that child are discarded to preserve return semantics."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-tag-info))
               (type (nth 0 node-info))
@@ -672,7 +802,8 @@ Boolean attributes and self-closing elements have no editable content."
             (if (jsx-jedi--jsx-child-p node)
                 (if bounds (buffer-substring (car bounds) (cdr bounds)) "")
               ;; Only a single JSX child is unambiguous in an expression slot.
-              ;; Extract that node without leading whitespace to avoid return ASI.
+              ;; Leading newlines after return could trigger automatic semicolon
+              ;; insertion, so promote the child node without that whitespace.
               (let (children)
                 (when bounds
                   (dotimes (i (treesit-node-child-count node t))
@@ -691,7 +822,8 @@ Boolean attributes and self-closing elements have no editable content."
 
 
 (defun jsx-jedi-move-to-opening-tag ()
-  "Move point to opening tag of JSX element."
+  "Move point to the selected JSX element's opening < character.
+Select using `jsx-jedi-tag-node-types'."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-tag-info))
               (node (nth 3 node-info))
@@ -701,7 +833,9 @@ Boolean attributes and self-closing elements have no editable content."
 
 
 (defun jsx-jedi-move-to-closing-tag ()
-  "Move point to closing tag of JSX element."
+  "Move point to the selected JSX element's closing > character.
+For a self-closing element, use its own >.  Select using
+`jsx-jedi-tag-node-types'."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-tag-info))
               (type (nth 0 node-info))
@@ -713,7 +847,10 @@ Boolean attributes and self-closing elements have no editable content."
 
 
 (defun jsx-jedi-toggle-self-closing-tag ()
-  "Toggle JSX element between self-closing and normal."
+  "Toggle the selected named JSX tag between paired and self-closing.
+Select using `jsx-jedi-tag-node-types'; fragments are rejected.
+Converting a paired element to self-closing deletes its children.
+Converting back creates an empty element, retaining its attributes."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-tag-info))
               (type (nth 0 node-info))
@@ -744,7 +881,9 @@ Boolean attributes and self-closing elements have no editable content."
 
 
 (defun jsx-jedi-add-attribute ()
-  "Add attribute to JSX element at point."
+  "Prompt for an attribute name and add it with an empty expression value.
+Leave point between the braces.  Require a named tag selected by
+`jsx-jedi-tag-node-types'; fragments are rejected."
   (interactive)
   (when-let* ((node-info (jsx-jedi--find-tag-info))
               (type (nth 0 node-info))
@@ -765,8 +904,11 @@ Boolean attributes and self-closing elements have no editable content."
 
 ;;;###autoload
 (define-minor-mode jsx-jedi-mode
-  "Minor mode for JSX-related editing commands, specifically designed for
-tsx-ts-mode and typescript-ts-mode."
+  "Enable structural JavaScript, TypeScript and JSX editing bindings.
+Use with `js-ts-mode', `typescript-ts-mode' or `tsx-ts-mode' and their
+tree-sitter grammars.  The package adds this mode to those major-mode
+hooks.  `jsx-jedi-mode-map' is empty by default; bind commands there or
+invoke them with \\[execute-extended-command]."
   :lighter " JSX Jedi"
   :keymap (make-sparse-keymap))
 
