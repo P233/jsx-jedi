@@ -43,7 +43,7 @@ Commands act on the closest matching syntax node at point, using their configura
 | `jsx-jedi-kill` | Kill a node; handle adjacent commas for objects, properties and required parameters, preserving intervening comments. |
 | `jsx-jedi-copy` | Copy a node or comment block to the kill ring. |
 | `jsx-jedi-duplicate` | Duplicate a node or comment block, adding separators for properties and objects in arrays or argument lists. |
-| `jsx-jedi-empty` | Kill a node's content to the kill ring, retaining its delimiters. Boolean attributes and self-closing elements are unchanged. |
+| `jsx-jedi-empty` | Kill a node's content to the kill ring, retaining its delimiters. Reports when there is nothing to empty, as on boolean attributes and self-closing elements. |
 | `jsx-jedi-substitute` | Replace a node's content with text from the kill ring, saving the removed content to the kill ring. |
 | `jsx-jedi-zap` | Delete from point to the content's end; do nothing when point is outside that content. |
 | `jsx-jedi-comment-uncomment` | Toggle JS/TS comments or standalone JSX child comments. |
@@ -52,7 +52,7 @@ Commands act on the closest matching syntax node at point, using their configura
 
 A comment block is a run of `//` comments on consecutive lines, each alone on its line. Block comments, trailing comments and runs separated by a blank line are handled on their own.
 
-Emptying a required value can leave incomplete code, such as `const value = ;`, for further editing.
+Emptying a required value can leave incomplete code, such as `const value = ;`, for further editing. Empty and substitute search no further than the statement or comment at point: inside `x += 1;` they report that there is nothing to empty rather than emptying the enclosing block, which blank space or a brace of that block still empties. On a block statement's header, such as `function f()`, `if (x)` or `class A`, they empty its own block.
 
 JSX duplication and commenting require a JSX children position. Mixed code/comment expressions cannot be uncommented; JSX content containing `*/` cannot be commented out.
 
@@ -79,7 +79,22 @@ Rename, attributes and self-closing conversion require a named tag. Unwrap and h
 
 Use `M-x customize-group RET jsx-jedi RET` to edit and save node-selection options. Existing `setq` configuration and temporary `let` bindings also work.
 
-List order does not give a node higher priority. Adding types changes selection, not the command's syntax or separator support. `jsx-jedi-tag-node-types` supports only paired elements/fragments and self-closing elements.
+Each option contains Tree-sitter node type strings. Commands search upward from point for the closest matching node, within their documented boundaries. Use `M-x customize-variable RET OPTION RET` to inspect or edit one list:
+
+| Option | Commands |
+| --- | --- |
+| `jsx-jedi-kill-node-types` | `jsx-jedi-kill` |
+| `jsx-jedi-copy-node-types` | `jsx-jedi-copy` |
+| `jsx-jedi-duplicate-node-types` | `jsx-jedi-duplicate` |
+| `jsx-jedi-mark-node-types` | `jsx-jedi-mark` |
+| `jsx-jedi-comment-node-types` | Code selection for `jsx-jedi-comment-uncomment` |
+| `jsx-jedi-empty-node-types` | `jsx-jedi-empty`, `jsx-jedi-substitute` |
+| `jsx-jedi-zap-node-types` | `jsx-jedi-zap` |
+| `jsx-jedi-avy-node-types` | `jsx-jedi-avy-word` navigation scope |
+| `jsx-jedi-hoist-node-types` | `jsx-jedi-hoist-tag` |
+| `jsx-jedi-tag-node-types` | The other JSX tag commands |
+
+List order does not give a node higher priority. Adding types changes selection, not the command's syntax or separator support. `jsx-jedi-tag-node-types` supports only paired elements/fragments and self-closing elements. `jsx-jedi-comment-node-types` controls commenting code, not uncomment detection; do not add `"comment"` to that list.
 
 The lists are independent: changing the tag list does not update other lists. Their default expressions read it on initial load or an explicit Customize reset; saved and preconfigured values are preserved.
 

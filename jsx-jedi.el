@@ -127,7 +127,8 @@ Only nodes with supported content bounds can be changed.  Optional
 object_type selects type members inside braces; throw_statement selects
 the thrown expression.  Neither is enabled by default.  Closer matches,
 such as property_signature, still take precedence.  Boolean attributes and
-self-closing elements remain selection stops despite having no content."
+self-closing elements remain selection stops despite having no content.
+The search stops at the statement or comment containing point."
   :type '(repeat string)
   :group 'jsx-jedi)
 
@@ -355,6 +356,57 @@ the selected ancestor."
               (treesit-node-end found-node)
               found-node)))))
 
+(defun jsx-jedi--statement-boundary-p (node)
+  "Return non-nil when NODE is a statement, declaration or comment."
+  (let ((type (treesit-node-type node)))
+    (and (treesit-node-check node 'named)
+         (or (member type '("comment" "function_signature" "import_alias" "module"))
+             (string-match-p "_\\(?:statement\\|declaration\\)\\'" type)))))
+
+(defun jsx-jedi--header-body-bounds (node)
+  "Return the brace interior of NODE's block when point precedes the block.
+NODE is a statement, declaration, method or clause; expressions such as
+arrow functions keep their own content ranges."
+  (if-let* ((_ (string= (treesit-node-type node) "export_statement"))
+            (declaration (treesit-node-child-by-field-name node "declaration")))
+      (jsx-jedi--header-body-bounds declaration)
+    (when-let* ((_ (or (jsx-jedi--statement-boundary-p node)
+                       (member (treesit-node-type node)
+                               '("method_definition" "internal_module"
+                                 "else_clause" "catch_clause" "finally_clause"))))
+                (body (or (treesit-node-child-by-field-name node "body")
+                          (treesit-node-child-by-field-name node "consequence")
+                          (and (string= (treesit-node-type node) "else_clause")
+                               (treesit-node-child node 0 t))))
+                (_ (< (point) (treesit-node-start body)))
+                (opening (treesit-node-child body 0))
+                (closing (treesit-node-child body -1))
+                (_ (and (string= (treesit-node-type opening) "{")
+                        (string= (treesit-node-type closing) "}")
+                        (not (treesit-node-check closing 'missing)))))
+      (cons (treesit-node-end opening) (treesit-node-start closing)))))
+
+(defun jsx-jedi--content-at-point (message)
+  "Return the content bounds selected by `jsx-jedi-empty-node-types'.
+Search from point no further than the statement or comment containing it,
+so a nested statement never selects its enclosing block.  A statement's
+header selects its own block.  Signal `user-error' with MESSAGE when no
+selected node has editable content."
+  (let ((node (jsx-jedi--find-node-at-point (treesit-node-at (point)) (point)))
+        header-bounds)
+    ;; Keyword leaves such as a type's `string' are anonymous namesakes.
+    (while (and node
+                (not (and (treesit-node-check node 'named)
+                          (member (treesit-node-type node) jsx-jedi-empty-node-types)))
+                (not (setq header-bounds (jsx-jedi--header-body-bounds node)))
+                (not (jsx-jedi--statement-boundary-p node)))
+      (setq node (treesit-node-parent node)))
+    (or header-bounds
+        (and node
+             (member (treesit-node-type node) jsx-jedi-empty-node-types)
+             (jsx-jedi--content-bounds (treesit-node-type node) node))
+        (user-error "%s" message))))
+
 (defun jsx-jedi--jsx-child-p (node)
   "Return non-nil when NODE is in a JSX children position."
   (string= (treesit-node-type (treesit-node-parent node)) "jsx_element"))
@@ -413,7 +465,7 @@ empty range, allowing `jsx-jedi-substitute' to insert there."
               (cons (treesit-node-end opening) (treesit-node-start closing))))
            ("interface_declaration"
             (when-let* ((body (treesit-node-child-by-field-name node "body")))
-              (cons (1+ (treesit-node-start body)) (1- (treesit-node-end body)))))
+              (jsx-jedi--content-bounds (treesit-node-type body) body)))
            ("property_signature"
             (when-let* ((annotation (treesit-node-child-by-field-name node "type"))
                         (value (treesit-node-child annotation -1)))
@@ -435,11 +487,14 @@ empty range, allowing `jsx-jedi-substitute' to insert there."
               (cons (treesit-node-start value) (treesit-node-end value))))
            ((or "arguments" "array" "array_pattern" "export_clause"
                 "formal_parameters" "jsx_expression" "named_imports"
-                "object" "object_pattern" "object_type" "parenthesized_expression"
+                "object" "object_pattern" "object_type" "interface_body" "parenthesized_expression"
                 "statement_block" "string" "tuple_type" "type_parameters"
                 "template_string")
             (when-let* ((opening (treesit-node-child node 0))
-                        (closing (treesit-node-child node -1)))
+                        (closing (treesit-node-child node -1))
+                        ;; An unclosed container would extend to the end of the buffer.
+                        (_ (not (or (treesit-node-check opening 'missing)
+                                    (treesit-node-check closing 'missing)))))
               (cons (treesit-node-end opening) (treesit-node-start closing)))))))
     (when (and bounds (<= (car bounds) (cdr bounds)))
       bounds)))
@@ -504,12 +559,13 @@ comments and delete the comma separately without adding it to the kill ring."
 
 (defun jsx-jedi-empty ()
   "Kill the selected node's content and leave point at its start.
-Select using `jsx-jedi-empty-node-types', retaining delimiters or the
-surrounding statement.  Removing a required value can leave incomplete
-code for further editing.  Nodes with no editable content are unchanged."
+Select using `jsx-jedi-empty-node-types' within the statement or comment
+at point, retaining delimiters or the surrounding statement; on a block
+statement's header, such as `function f()' or `if (x)', select its block.
+Removing a required value can leave incomplete code for further editing.
+Signal `user-error' when nothing there has editable content."
   (interactive)
-  (when-let* ((info (jsx-jedi--find-node-info jsx-jedi-empty-node-types))
-              (bounds (jsx-jedi--content-bounds (nth 0 info) (nth 3 info))))
+  (let ((bounds (jsx-jedi--content-at-point "Nothing to empty here")))
     (jsx-jedi--kill-region-and-goto-start (car bounds) (cdr bounds))))
 
 (defun jsx-jedi-substitute ()
@@ -518,15 +574,14 @@ Use the same ranges as `jsx-jedi-empty'.  Trim the replacement's outer
 whitespace, preserving its internal line breaks and indentation.  Insert
 without extra line breaks or reindentation, which could alter return/throw
 operands or literal text.  Save the removed content to the kill ring and
-group the replacement into one undo step.  Nodes with no editable content
-are unchanged."
+group the replacement into one undo step.  Signal `user-error' when
+nothing has editable content."
   (interactive)
-  (when-let* ((info (jsx-jedi--find-node-info jsx-jedi-empty-node-types))
-              (bounds (jsx-jedi--content-bounds (nth 0 info) (nth 3 info))))
-    (let ((text (string-trim (current-kill 0))))
-      (atomic-change-group
-        (jsx-jedi--kill-region-and-goto-start (car bounds) (cdr bounds))
-        (insert text)))))
+  (let ((bounds (jsx-jedi--content-at-point "Nothing to substitute here"))
+        (text (string-trim (current-kill 0))))
+    (atomic-change-group
+      (jsx-jedi--kill-region-and-goto-start (car bounds) (cdr bounds))
+      (insert text))))
 
 
 (defun jsx-jedi-zap ()

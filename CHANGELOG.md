@@ -4,6 +4,7 @@
 
 - Added Customize support for the ten node-selection options, preserving existing `setq` and saved settings. Default node-type lists are unchanged.
 - Added optional `object_type` and `throw_statement` content ranges for empty/substitute.
+- Limited empty/substitute to the statement or comment at point, so a nested statement no longer empties its enclosing block, and reported when there is no content instead of doing nothing. A block statement's header now empties its own block, and an unclosed block is never emptied to the end of the buffer.
 - Hardened JSX tag, comment and duplication operations, preserving literal whitespace and grouping multi-step tag edits for undo.
 - Fixed content selection when comments precede return/throw values or variable declarators.
 - Limited comment blocks to consecutive standalone `//` lines, so trailing comments, block comments and blank-line-separated runs are no longer merged.

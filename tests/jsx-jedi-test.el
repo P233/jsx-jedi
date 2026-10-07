@@ -70,13 +70,88 @@
           (treesit-query-capture (treesit-buffer-root-node 'tsx)
                                 '((template_string) @template) nil nil t)))
 
+(ert-deftest jsx-jedi-test-edit-commands-ignore-prefix-arguments ()
+  (dolist (source '("function f() { const value = 4|2; return value; }"
+                    "const view = <main><but|ton>Ready</button><aside /></main>;"))
+    (dolist (command '(jsx-jedi-kill jsx-jedi-copy jsx-jedi-duplicate jsx-jedi-mark
+                       jsx-jedi-empty jsx-jedi-comment-uncomment))
+      (let (baseline)
+        (dolist (prefix '(nil (4) (16) -))
+          (jsx-jedi-test--with-buffer source
+            (let ((current-prefix-arg prefix))
+              (call-interactively command)
+              (let ((result (list (jsx-jedi-test--text) (point) (mark t)
+                                  mark-active kill-ring)))
+                (if prefix (should (equal result baseline)) (setq baseline result))))))))))
+
 (ert-deftest jsx-jedi-test-empty-boolean-attribute ()
   (jsx-jedi-test--with-buffer "const x = <Button dis|abled />;"
-    (jsx-jedi-test--unchanged #'jsx-jedi-empty)))
+    (jsx-jedi-test--unchanged #'jsx-jedi-empty 'user-error)))
 
 (ert-deftest jsx-jedi-test-empty-self-closing-tag ()
   (jsx-jedi-test--with-buffer "const x = <But|ton value={x} />;"
-    (jsx-jedi-test--unchanged #'jsx-jedi-empty)))
+    (jsx-jedi-test--unchanged #'jsx-jedi-empty 'user-error)))
+
+(ert-deftest jsx-jedi-test-content-search-stops-at-the-statement ()
+  ;; A statement or comment without content never selects its enclosing block.
+  (dolist (source '("function f() { x| += 1; y(); }"
+                    "function f() { if (a) { b|reak; } }"
+                    "function f() { work();| }"
+                    "function f() {\n  // no|te\n  work();\n}"
+                    "items.map((x) => { x|++; });"
+                    "function f() { re|turn; }"
+                    "imp|ort x from 'y';"
+                    "namespace N { func|tion f(): void; }"
+                    "declare module \"x\" { imp|ort a = M.b; }"))
+    (dolist (command '(jsx-jedi-empty jsx-jedi-substitute))
+      (jsx-jedi-test--with-buffer source
+        (ert-info ((format "%s in %s" command source))
+          (jsx-jedi-test--unchanged command 'user-error)))))
+  (jsx-jedi-test--with-buffer "function f() { x| += 1; }"
+    (should (equal (cadr (should-error (jsx-jedi-empty) :type 'user-error))
+                   "Nothing to empty here")))
+  ;; Blank space and braces still belong to the block itself.
+  (dolist (source '("function f() { | x += 1; }" "function f() { x += 1; |}"))
+    (jsx-jedi-test--with-buffer source
+      (jsx-jedi-empty)
+      (should (equal (jsx-jedi-test--text) "function f() {}")))))
+
+(ert-deftest jsx-jedi-test-empty-block-statement-from-its-header ()
+  (dolist (case '(("func|tion g() { x; }" "function g() {}")
+                  ("function g|o() { x; }" "function go() {}")
+                  ("cla|ss A { m() {} }" "class A {}")
+                  ("class A { ren|der() { x; } }" "class A { render() {} }")
+                  ("i|f (a) { x; } else { y; }" "if (a) {} else { y; }")
+                  ("if (a) { x; } el|se { y; }" "if (a) { x; } else {}")
+                  ("whi|le (a) { x; }" "while (a) {}")
+                  ("tr|y { x; } catch (e) { y; }" "try {} catch (e) { y; }")
+                  ("try { x; } cat|ch (e) { y; }" "try { x; } catch (e) {}")
+                  ("swi|tch (a) { case 1: x; }" "switch (a) {}")
+                  ("exp|ort function g() { x; }" "export function g() {}")
+                  ("names|pace N { const x = 1; }" "namespace N {}")
+                  ;; Object methods empty their body, as pairs empty their value.
+                  ("const o = { |m() { return 1; }, n: 2 };" "const o = { m() {}, n: 2 };")
+                  ;; Conditions and parameters keep their own content.
+                  ("if (a|) { x; }" "if () { x; }")
+                  ;; Expressions are not statements with headers.
+                  ("const f = () =|> { x; };" "const f = ;")))
+    (jsx-jedi-test--with-buffer (car case)
+      (jsx-jedi-empty)
+      (should (equal (jsx-jedi-test--text) (cadr case)))))
+  ;; An unclosed block would extend to the end of the buffer.
+  (dolist (source '("export function Ap|p() {\n  if (x) {\n    y();\n}\nexport function B() {}\n"
+                    "function f() { | x;\nfoo();"))
+    (dolist (command '(jsx-jedi-empty jsx-jedi-substitute))
+      (jsx-jedi-test--with-buffer source
+        (jsx-jedi-test--unchanged command 'user-error)))))
+
+(ert-deftest jsx-jedi-test-empty-keyword-types-like-named-types ()
+  ;; The `string' and `object' type keywords are not string or object nodes.
+  (dolist (case '(("interface I { a: str|ing }" "interface I { a:  }")
+                  ("let x: obj|ect = {};" "let x: object = ;")))
+    (jsx-jedi-test--with-buffer (car case)
+      (jsx-jedi-empty)
+      (should (equal (jsx-jedi-test--text) (cadr case))))))
 
 (ert-deftest jsx-jedi-test-empty-string-keeps-delimiters ()
   (jsx-jedi-test--with-buffer "const x = \"he|llo\";"
@@ -180,7 +255,7 @@
     (dolist (command '(jsx-jedi-empty jsx-jedi-substitute))
       (jsx-jedi-test--with-buffer
           (concat "|" keyword " /* why */ first, second = keep;")
-        (jsx-jedi-test--unchanged command)))))
+        (jsx-jedi-test--unchanged command 'user-error)))))
 
 (ert-deftest jsx-jedi-test-substitute-empty-string ()
   (jsx-jedi-test--with-buffer "const x = \"|\";"
@@ -189,11 +264,11 @@
     (should (equal (jsx-jedi-test--text) "const x = \"replacement\";"))
     (jsx-jedi-test--assert-valid)))
 
-(ert-deftest jsx-jedi-test-substitute-no-content-is-noop ()
+(ert-deftest jsx-jedi-test-substitute-without-content-is-rejected ()
   (dolist (source '("const x = <Button dis|abled />;"
                     "const x = <But|ton value={x} />;"))
     (jsx-jedi-test--with-buffer source
-      (jsx-jedi-test--unchanged #'jsx-jedi-substitute))))
+      (jsx-jedi-test--unchanged #'jsx-jedi-substitute 'user-error))))
 
 (ert-deftest jsx-jedi-test-zap-in-closing-tag-is-noop ()
   (jsx-jedi-test--with-buffer "const x = <div>hello</di|v>;"
@@ -719,7 +794,7 @@
 (ert-deftest jsx-jedi-test-bare-return-comment-has-no-value ()
   (dolist (command '(jsx-jedi-empty jsx-jedi-substitute))
     (jsx-jedi-test--with-buffer "function f() { ret|urn /* explanation */; }"
-      (jsx-jedi-test--unchanged command))))
+      (jsx-jedi-test--unchanged command 'user-error))))
 
 (ert-deftest jsx-jedi-test-substitute-preserves-multiline-text ()
   (let ((jsx-jedi-empty-node-types (cons "throw_statement" jsx-jedi-empty-node-types)))
@@ -840,6 +915,13 @@
         (should-error (jsx-jedi-kill) :type 'text-read-only)
         (should (equal (jsx-jedi-test--text) before))
         (should (= (point) position))))))
+
+(ert-deftest jsx-jedi-test-empty-unclosed-interface-preserves-following-code ()
+  (dolist (source '("interface |I {\n a: number;\nconst keep = 1;"
+                    "interface I { | a: number;"))
+    (dolist (command '(jsx-jedi-empty jsx-jedi-substitute))
+      (jsx-jedi-test--with-buffer source
+        (jsx-jedi-test--unchanged command 'user-error)))))
 
 (provide 'jsx-jedi-test)
 ;;; jsx-jedi-test.el ends here
