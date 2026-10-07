@@ -169,6 +169,10 @@
                 "const x = `first\n  second`;" "first\n  second")
                (jsx-jedi-duplicate "let count = 0;\n(|count++)"
                 "let count = 0;\n(count++);\n(count++)")
+               (jsx-jedi-substitute "const x = { a: f(1) \t|\n, b: 2 };"
+                "const x = { a: 3 \t\n, b: 2 };" "3")
+               (jsx-jedi-comment-uncomment "const x = {\n  a: 1 |,\n  b: 2\n};"
+                "const x = {\n  // a: 1 ,\n  b: 2\n};")
                (jsx-jedi-kill "const xs = [{| a: 1 } /* note */, 2];"
                 "const xs = [ /* note */ 2];")))
       (with-temp-buffer

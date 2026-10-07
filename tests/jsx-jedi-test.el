@@ -916,12 +916,131 @@
         (should (equal (jsx-jedi-test--text) before))
         (should (= (point) position))))))
 
+
+(ert-deftest jsx-jedi-test-entry-tail-entity-boundaries ()
+  (dolist (value '("1" "{ inner: 1 }" "f(1)" "\"text\""))
+    (dolist (tail '("|" "| " " |" " \t|\r\n "))
+      (dolist (ending '(", b: 2 };" "};" ",};"))
+        (dolist (command '(jsx-jedi-copy jsx-jedi-mark jsx-jedi-kill
+                           jsx-jedi-duplicate jsx-jedi-comment-uncomment))
+          (let* ((source (concat "const x = { a: " value tail ending))
+                 (plain (string-replace "|" "" source))
+                 expected)
+            (jsx-jedi-test--with-buffer (string-replace "a:" "|a:" plain)
+              (funcall command)
+              (setq expected (list (jsx-jedi-test--text) kill-ring
+                                   (and (eq command 'jsx-jedi-mark)
+                                        (buffer-substring (region-beginning) (region-end))))))
+            (jsx-jedi-test--with-buffer source
+              (funcall command)
+              (should (equal (list (jsx-jedi-test--text) kill-ring
+                                   (and (eq command 'jsx-jedi-mark)
+                                        (buffer-substring (region-beginning) (region-end))))
+                             expected))
+              (jsx-jedi-test--assert-valid))))))))
+
+(ert-deftest jsx-jedi-test-entry-tail-content-boundaries ()
+  (dolist (value '("1" "{ inner: 1 }" "f(1)" "\"text\""))
+    (dolist (tail '("|" "| " " |" " \t|\r\n "))
+      (dolist (ending '(", b: 2 };" "};" ",};"))
+        (dolist (command '(jsx-jedi-empty jsx-jedi-substitute))
+          (jsx-jedi-test--with-buffer (concat "const x = { a: " value tail ending)
+            (setq kill-ring '("3"))
+            (funcall command)
+            (should (equal (car kill-ring) value))
+            (should (equal (jsx-jedi-test--text)
+                           (concat "const x = { a: "
+                                   (if (eq command 'jsx-jedi-substitute) "3" "")
+                                   (string-replace "|" "" tail) ending)))
+            (when (eq command 'jsx-jedi-substitute)
+              (jsx-jedi-test--assert-valid))))))))
+
+(ert-deftest jsx-jedi-test-entry-tail-other-supported-entries ()
+  (dolist (case '(("function f(a = 1 |, b = 2) {}" "required_parameter" "a = 1")
+                  ("function f(a = f(1) |) {}" "required_parameter" "a = f(1)")
+                  ("function f(a?: number |) {}" "optional_parameter" "a?: number")
+                  ("type T = { a: number |; b: string };" "property_signature" "a: number")
+                  ("interface T { a: number |, b: string }" "property_signature" "a: number")
+                  ("type T = { a: number | };" "property_signature" "a: number")
+                  ("const xs = [{ a: 1 } |, { b: 2 }];" "object" "{ a: 1 }")
+                  ("f({ a: 1 } |);" "object" "{ a: 1 }")))
+    (jsx-jedi-test--with-buffer (car case)
+      (let ((jsx-jedi-copy-node-types (list (nth 1 case))))
+        (jsx-jedi-copy)
+        (should (equal (car kill-ring) (nth 2 case)))))))
+
+(ert-deftest jsx-jedi-test-entry-tail-keeps-container-and-comment-boundaries ()
+  (dolist (case '(("const x = { a: 1,| b: 2 };" " a: 1, b: 2 ")
+                  ("const x = { a: 1, |};" " a: 1, ")
+                  ("const x = { a: 1 /* keep */ |, b: 2 };" " a: 1 /* keep */ , b: 2 ")
+                  ("const x = { a: f(1 |), b: 2 };" "1 ")
+                  ("const x = { a: \"text |\", b: 2 };" "text ")
+                  ("function f(a = 1 |, b = 2) {}" "a = 1 , b = 2")))
+    (jsx-jedi-test--with-buffer (car case)
+      (jsx-jedi-empty)
+      (should (equal (car kill-ring) (cadr case)))))
+  (jsx-jedi-test--with-buffer "const x = { a: 1 /* ke|ep */, b: 2 };"
+    (jsx-jedi-test--unchanged #'jsx-jedi-empty 'user-error))
+  (jsx-jedi-test--with-buffer "const x = { a: 1 |, b: 2 };"
+    (let ((jsx-jedi-copy-node-types '("object")))
+      (jsx-jedi-copy)
+      (should (equal (car kill-ring) "{ a: 1 , b: 2 }"))))
+  (jsx-jedi-test--with-buffer "const x = { a: 1 |, b: 2 };"
+    (let ((jsx-jedi-empty-node-types '("object")))
+      (jsx-jedi-empty)
+      (should (equal (car kill-ring) " a: 1 , b: 2 ")))))
+
+(ert-deftest jsx-jedi-test-entry-tail-content-for-types-and-list-objects ()
+  (dolist (case '(("type T = { a: number |; b: string };" "number")
+                  ("interface T { a: number |, b: string }" "number")
+                  ("const xs = [{ a: 1 } |, { b: 2 }];" " a: 1 ")
+                  ("f({ a: 1 } |);" " a: 1 ")))
+    (jsx-jedi-test--with-buffer (car case)
+      (jsx-jedi-empty)
+      (should (equal (car kill-ring) (cadr case))))))
+
+(ert-deftest jsx-jedi-test-entry-tail-keeps-undo ()
+  (dolist (command '(jsx-jedi-kill jsx-jedi-duplicate jsx-jedi-comment-uncomment
+                     jsx-jedi-empty jsx-jedi-substitute))
+    (jsx-jedi-test--with-buffer "const x = { a: { inner: 1 } \t|\n, b: 2 };"
+      (insert " ")
+      (setq buffer-undo-list nil)
+      (let ((original (jsx-jedi-test--text)))
+        (funcall command)
+        (undo-boundary)
+        (undo 1)
+        (should (equal (jsx-jedi-test--text) original))))))
+
+(ert-deftest jsx-jedi-test-entry-tail-comment-includes-separated-comma ()
+  (dolist (case '(("const x = { a: 1 |, b: 2 };"
+                   "const x = { // a: 1 ,\n  b: 2 };")
+                  ("const x = { a|: 1 , b: 2 };"
+                   "const x = { // a: 1 ,\n  b: 2 };")
+                  ("const x = {\n  a: 1 |,\n  b: 2\n};"
+                   "const x = {\n  // a: 1 ,\n  b: 2\n};")))
+    (jsx-jedi-test--with-buffer (car case)
+      (jsx-jedi-comment-uncomment)
+      (should (equal (jsx-jedi-test--text) (cadr case)))
+      (should (equal (jsx-jedi-test--pair-texts) '("b: 2")))
+      (jsx-jedi-test--assert-valid))))
+
 (ert-deftest jsx-jedi-test-empty-unclosed-interface-preserves-following-code ()
   (dolist (source '("interface |I {\n a: number;\nconst keep = 1;"
                     "interface I { | a: number;"))
     (dolist (command '(jsx-jedi-empty jsx-jedi-substitute))
       (jsx-jedi-test--with-buffer source
         (jsx-jedi-test--unchanged command 'user-error)))))
+
+(ert-deftest jsx-jedi-test-comment-pair-includes-comma-after-comments ()
+  (jsx-jedi-test--with-buffer "const x = { a|: 1 /* keep */, b: 2 };"
+    (jsx-jedi-comment-uncomment)
+    (should (equal (jsx-jedi-test--text)
+                   "const x = { // a: 1 /* keep */,\n  b: 2 };"))
+    (should (equal (jsx-jedi-test--pair-texts) '("b: 2")))
+    (jsx-jedi-test--assert-valid)
+    (undo-boundary)
+    (undo 1)
+    (should (equal (jsx-jedi-test--text) "const x = { a: 1 /* keep */, b: 2 };"))))
 
 (provide 'jsx-jedi-test)
 ;;; jsx-jedi-test.el ends here

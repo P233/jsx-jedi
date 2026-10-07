@@ -336,6 +336,31 @@ line stand alone."
         (jsx-jedi--find-node-at-point (treesit-node-parent node) position)))))
 
 
+(defun jsx-jedi--entry-at-point ()
+  "Return the entry whose tail before a direct delimiter contains point.
+Support object pairs, parameters, type properties and objects in lists.
+Only whitespace may follow the entry, up to its comma, semicolon or closing
+bracket.  Never cross a comment, a passed separator or a nested delimiter."
+  (let* ((end (save-excursion (skip-chars-backward " \t\r\n\f") (point)))
+         (node (and (> end (point-min)) (treesit-node-at (1- end))))
+         entry)
+    (while (and node (not entry) (<= (treesit-node-end node) end))
+      (when (and (= (treesit-node-end node) end)
+                 (pcase (treesit-node-type (treesit-node-parent node))
+                   ("object" (equal (treesit-node-type node) "pair"))
+                   ("formal_parameters"
+                    (member (treesit-node-type node) '("required_parameter" "optional_parameter")))
+                   ((or "object_type" "interface_body")
+                    (equal (treesit-node-type node) "property_signature"))
+                   ((or "array" "arguments") (equal (treesit-node-type node) "object"))))
+        (when-let* ((next (treesit-node-next-sibling node))
+                    (_ (member (treesit-node-type next) '("," ";" ")" "]" "}")))
+                    (_ (not (treesit-node-check next 'missing)))
+                    (_ (<= (point) (treesit-node-start next))))
+          (setq entry node)))
+      (setq node (treesit-node-parent node)))
+    entry))
+
 (defun jsx-jedi--find-node-info (valid-types)
   "Find the closest node at point whose type is in VALID-TYPES.
 Search the node and its ancestors.
@@ -348,7 +373,8 @@ the selected ancestor."
              (member "comment" valid-types))
         (let ((bounds (jsx-jedi--find-comment-block-bounds node)))
           (list "comment" (car bounds) (cdr bounds) node))
-      (when-let* ((node-at-point (jsx-jedi--find-node-at-point node (point)))
+      (when-let* ((node-at-point (or (jsx-jedi--entry-at-point)
+                                   (jsx-jedi--find-node-at-point node (point))))
                   (found-node (treesit-parent-until node-at-point (lambda (n)
                                                                     (member (treesit-node-type n) valid-types)) t)))
         (list (treesit-node-type found-node)
@@ -392,7 +418,8 @@ Search from point no further than the statement or comment containing it,
 so a nested statement never selects its enclosing block.  A statement's
 header selects its own block.  Signal `user-error' with MESSAGE when no
 selected node has editable content."
-  (let ((node (jsx-jedi--find-node-at-point (treesit-node-at (point)) (point)))
+  (let ((node (or (jsx-jedi--entry-at-point)
+                  (jsx-jedi--find-node-at-point (treesit-node-at (point)) (point))))
         header-bounds)
     ;; Keyword leaves such as a type's `string' are anonymous namesakes.
     (while (and node
@@ -723,8 +750,7 @@ block-comment terminator."
           (insert (string-trim (substring text 2 -2) "[ \t]*" "[ \t]*")))))
 
      (t
-      (when-let* ((element (treesit-parent-until node (lambda (n)
-                                                        (member (treesit-node-type n) jsx-jedi-comment-node-types)) t))
+      (when-let* ((element (nth 3 (jsx-jedi--find-node-info jsx-jedi-comment-node-types)))
                   (start (treesit-node-start element))
                   (end (treesit-node-end element)))
         (if (jsx-jedi--jsx-element-p element)
@@ -737,9 +763,13 @@ block-comment terminator."
                 (delete-region start end)
                 (goto-char start)
                 (insert "{/* " text " */}")))
-          (if (eq (char-after end) ?,)
-              (comment-region start (1+ end))
-            (comment-region start end))))))))
+          (let ((next (treesit-node-next-sibling element)))
+            (while (equal (treesit-node-type next) "comment")
+              (setq next (treesit-node-next-sibling next)))
+            (comment-region start
+                            (if (equal (treesit-node-type next) ",")
+                                (treesit-node-end next)
+                              end)))))))))
 
 (defun jsx-jedi-avy-word ()
   "Use Avy to jump to a word in the selected syntax range.

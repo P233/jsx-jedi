@@ -50,6 +50,8 @@ Commands act on the closest matching syntax node at point, using their configura
 | `jsx-jedi-mark` | Select a node. Repeating the command does not expand the selection. |
 | `jsx-jedi-avy-word` | Use Avy to jump within the selected node's scope in the current window. |
 
+At an object property's end, whitespace before its next comma or closing `}` still belongs to that property: `a: 1│,` and `a: 1 │,` select the same pair. After the comma (`a: 1,│`), the surrounding container applies again. Parameters, type properties and objects in arrays or argument lists follow the same boundary rule, subject to each command's configured node types. Comments interrupt this trailing whitespace; inside a value, nearer strings and calls keep priority. Copy and mark exclude separators. Commenting includes a following comma and any intervening comments so it does not leave a stray comma in the object.
+
 A comment block is a run of `//` comments on consecutive lines, each alone on its line. Block comments, trailing comments and runs separated by a blank line are handled on their own.
 
 Emptying a required value can leave incomplete code, such as `const value = ;`, for further editing. Empty and substitute search no further than the statement or comment at point: inside `x += 1;` they report that there is nothing to empty rather than emptying the enclosing block, which blank space or a brace of that block still empties. On a block statement's header, such as `function f()`, `if (x)` or `class A`, they empty its own block.
