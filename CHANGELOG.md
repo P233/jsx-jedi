@@ -12,6 +12,7 @@
 - Kept Avy word navigation inside the current window's selected node, regardless of Avy's global window settings or prefix arguments.
 - Preserved multiline substitution text without adding line breaks or reindenting literals.
 - Rejected duplication in single-statement control-flow positions and separated semicolonless expressions when needed.
+- Prevented duplication from expanding abbreviations or auto-filling the original statement.
 - Removed list separators across comments without deleting the comments, with atomic undo and rollback.
 - Fixed ancestor selection through nodes with equal source ranges.
 - Added parser-backed regression tests, pinned test dependencies, source/bytecode validation, an Emacs CI matrix and batch performance samples.

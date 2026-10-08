@@ -9,6 +9,7 @@
 
 (require 'ert)
 (require 'cl-lib)
+(require 'abbrev)
 (require 'pulse)
 (require 'typescript-ts-mode)
 (require 'jsx-jedi)
@@ -370,6 +371,32 @@
     (jsx-jedi-duplicate)
     (should (equal (jsx-jedi-test--text)
                    "const x = `one\n   two\n zero`;\nconst x = `one\n   two\n zero`;"))
+    (jsx-jedi-test--assert-valid)))
+
+(ert-deftest jsx-jedi-test-duplicate-does-not-expand-abbrevs ()
+  (dolist (case '(("const| x = token"
+                   "const x = token\nconst x = token")
+                  ("function f() {\n  const| x = token\n}"
+                   "function f() {\n  const x = token\n  const x = token\n}")))
+    (jsx-jedi-test--with-buffer (car case)
+      (let ((expansions 0))
+        (setq-local local-abbrev-table (make-abbrev-table))
+        (define-abbrev local-abbrev-table "token" "replacement"
+          (lambda () (cl-incf expansions)) :system t)
+        (abbrev-mode 1)
+        (jsx-jedi-duplicate)
+        (should (equal (jsx-jedi-test--text) (cadr case)))
+        (should (zerop expansions))
+        (should (equal kill-ring '("previous kill")))
+        (jsx-jedi-test--assert-valid)))))
+
+(ert-deftest jsx-jedi-test-duplicate-does-not-auto-fill ()
+  (jsx-jedi-test--with-buffer "const| value = first + second"
+    (setq-local fill-column 10)
+    (auto-fill-mode 1)
+    (jsx-jedi-duplicate)
+    (should (equal (jsx-jedi-test--text)
+                   "const value = first + second\nconst value = first + second"))
     (jsx-jedi-test--assert-valid)))
 
 (ert-deftest jsx-jedi-test-duplicate-preserves-function-body-indentation ()

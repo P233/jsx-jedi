@@ -678,7 +678,8 @@ indentation, leave point at the inserted range's end and highlight the copy."
         (goto-char end)
         (when comma-p (insert ","))
         (when semicolon-p (insert ";"))
-        (newline)
+        ;; `newline' would expand abbrevs and auto-fill the original statement.
+        (insert "\n")
         (let ((insert-start (point)))
           (insert text)
           ;; Reindent only the sibling's first line: reindenting its body can
